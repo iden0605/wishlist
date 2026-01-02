@@ -20,8 +20,8 @@ const PasswordGate: React.FC<PasswordGateProps> = ({ onLogin }) => {
   return (
     <div className="min-h-screen flex items-center justify-center">
       <div className="bg-white p-8 rounded-lg shadow-lg max-w-sm w-full">
-        <h2 className="text-2xl font-bold text-center text-gray-800 mb-4">Welcome!</h2>
-        <p className="text-gray-600 text-center mb-6">Please enter the password to view the wishlist.</p>
+        <h2 className="text-2xl font-bold text-center text-gray-800 mb-4">Hello Beloved Jocelyn</h2>
+        <p className="text-gray-600 text-center mb-6">Enter tha password, it is very obvious...</p>
         <form onSubmit={handleSubmit}>
           <div className="mb-4">
             <label htmlFor="password" className="block text-gray-700 text-sm font-bold mb-2">

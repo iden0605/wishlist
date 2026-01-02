@@ -6,6 +6,7 @@ export interface Item {
   id: string;
   title: string;
   image: string;
+  price: number;
   link: string;
   categoryId: string;
   createdAt: {

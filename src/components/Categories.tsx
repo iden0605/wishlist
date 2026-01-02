@@ -3,12 +3,7 @@ import { collection, addDoc, serverTimestamp, doc, updateDoc, deleteDoc } from '
 import { db } from '@/lib/firebase';
 import { useCategories } from '@/hooks/useCategories';
 
-interface CategoriesProps {
-  selectedCategory: string | null;
-  setSelectedCategory: (id: string | null) => void;
-}
-
-const Categories: React.FC<CategoriesProps> = ({ selectedCategory, setSelectedCategory }) => {
+const Categories = () => {
   const { categories, loading } = useCategories();
   const [newCategory, setNewCategory] = useState('');
   const [editingCategory, setEditingCategory] = useState<{ id: string; name: string } | null>(null);
@@ -40,59 +35,50 @@ const Categories: React.FC<CategoriesProps> = ({ selectedCategory, setSelectedCa
   };
 
   return (
-    <div className="p-4">
-      <h2 className="text-xl font-bold mb-4">Categories</h2>
-      <div className="mb-4">
+    <div className="p-6 mb-8 bg-white rounded-xl shadow-lg">
+      <h2 className="text-2xl font-bold mb-6 text-gray-700">Manage Categories</h2>
+      <div className="mb-6">
         <form onSubmit={handleSubmit} className="flex">
           <input
             type="text"
             value={newCategory}
             onChange={(e) => setNewCategory(e.target.value)}
             placeholder="New category name"
-            className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+            className="shadow-sm appearance-none border rounded-lg w-full p-3 text-gray-700 focus:outline-none focus:ring-2 focus:ring-pink-500"
           />
           <button
             type="submit"
-            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded ml-2"
+            className="flex items-center bg-pink-500 hover:bg-pink-600 text-white font-bold py-3 px-4 rounded-lg ml-2 transition-colors duration-300"
           >
-            Add
+            <span className="mr-2">+</span> Add
           </button>
         </form>
       </div>
       {loading ? (
         <p>Loading categories...</p>
       ) : (
-        <ul className="flex flex-wrap gap-2">
-          <li
-            onClick={() => setSelectedCategory(null)}
-            className={`cursor-pointer p-2 rounded ${!selectedCategory ? 'bg-pink-500 text-white' : 'bg-gray-200'}`}
-          >
-            All
-          </li>
+        <ul className="flex flex-col gap-2">
           {categories.map((category) => (
-            <li key={category.id} className="flex items-center group">
-              <span
-                onClick={() => setSelectedCategory(category.id)}
-                className={`cursor-pointer p-2 rounded ${selectedCategory === category.id ? 'bg-pink-500 text-white' : 'bg-gray-200'}`}
-              >
+            <li key={category.id} className="flex items-center group justify-between p-2 rounded-lg bg-gray-100 border border-gray-200">
+              <div>
                 {editingCategory?.id === category.id ? (
                   <input
                     type="text"
                     value={editingCategory.name}
                     onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700"
+                    className="shadow-sm appearance-none border rounded-lg w-full p-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-pink-500"
                   />
                 ) : (
-                  category.name
+                  <span>{category.name}</span>
                 )}
-              </span>
-              <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+              </div>
+              <div className="opacity-0 group-hover:opacity-100 transition-opacity flex">
                 {editingCategory?.id === category.id ? (
-                  <button onClick={() => handleUpdate(category.id)} className="bg-green-500 text-white p-1 rounded ml-2">Save</button>
+                  <button onClick={() => handleUpdate(category.id)} className="bg-green-500 text-white p-2 rounded-lg ml-2">Save</button>
                 ) : (
-                  <button onClick={() => setEditingCategory({ id: category.id, name: category.name })} className="bg-yellow-500 text-white p-1 rounded ml-2">Edit</button>
+                  <button onClick={() => setEditingCategory({ id: category.id, name: category.name })} className="bg-yellow-500 text-white p-2 rounded-lg ml-2">Edit</button>
                 )}
-                <button onClick={() => handleDelete(category.id)} className="bg-red-500 text-white p-1 rounded ml-2">Delete</button>
+                <button onClick={() => handleDelete(category.id)} className="bg-red-500 text-white p-2 rounded-lg ml-2">Delete</button>
               </div>
             </li>
           ))}
