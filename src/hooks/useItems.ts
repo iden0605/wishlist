@@ -35,6 +35,9 @@ export const useItems = (sortBy: SortByType) => {
       });
       setItems(itemsData);
       setLoading(false);
+    }, (error) => {
+      console.error("Error fetching items:", error);
+      setLoading(false);
     });
 
     return () => unsubscribe();
