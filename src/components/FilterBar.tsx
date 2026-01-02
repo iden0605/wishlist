@@ -1,4 +1,4 @@
-import React, { useState, forwardRef } from 'react';
+import { useState, forwardRef } from 'react';
 import type { SortByType } from '@/hooks/useItems';
 import { type OrderByDirection } from 'firebase/firestore';
 
