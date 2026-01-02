@@ -8,7 +8,6 @@ export interface Item {
   image: string;
   price: number;
   link: string;
-  categoryId: string;
   createdAt: {
     seconds: number;
     nanoseconds: number;
@@ -20,19 +19,14 @@ export type SortByType = {
   direction: OrderByDirection;
 };
 
-export const useItems = (categoryId: string | null, sortBy: SortByType) => {
+export const useItems = (sortBy: SortByType) => {
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const itemsCollection = collection(db, 'items');
     
-    let q;
-    if (categoryId) {
-      q = query(itemsCollection, where('categoryId', '==', categoryId), orderBy(sortBy.field, sortBy.direction));
-    } else {
-      q = query(itemsCollection, orderBy(sortBy.field, sortBy.direction));
-    }
+    const q = query(itemsCollection, orderBy(sortBy.field, sortBy.direction));
 
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const itemsData: Item[] = [];
@@ -44,7 +38,7 @@ export const useItems = (categoryId: string | null, sortBy: SortByType) => {
     });
 
     return () => unsubscribe();
-  }, [categoryId, sortBy]);
+  }, [sortBy]);
 
   return { items, loading };
 };

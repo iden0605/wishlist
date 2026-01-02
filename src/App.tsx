@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import PasswordGate from '@/components/PasswordGate';
-import Categories from '@/components/Categories';
 import AddItem from '@/components/AddItem';
 import ItemList from '@/components/ItemList';
 import FilterBar from '@/components/FilterBar';
@@ -10,7 +9,6 @@ const SESSION_KEY = 'jocelyn-wishlist-auth';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortByType>({ field: 'createdAt', direction: 'desc' });
 
   const handleSortChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -40,15 +38,10 @@ function App() {
       <div className="mb-12">
         <AddItem />
       </div>
-      <div className="mb-12">
-        <Categories />
-      </div>
       <FilterBar
-        selectedCategory={selectedCategory}
-        setSelectedCategory={setSelectedCategory}
         onSortChange={handleSortChange}
       />
-      <ItemList selectedCategory={selectedCategory} sortBy={sortBy} />
+      <ItemList sortBy={sortBy} />
     </div>
   );
 }

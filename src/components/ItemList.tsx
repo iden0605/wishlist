@@ -4,12 +4,11 @@ import { doc, deleteDoc, collection, getDocs, writeBatch } from 'firebase/firest
 import { db } from '@/lib/firebase';
 
 interface ItemListProps {
-  selectedCategory: string | null;
   sortBy: SortByType;
 }
 
-const ItemList: React.FC<ItemListProps> = ({ selectedCategory, sortBy }) => {
-  const { items, loading } = useItems(selectedCategory, sortBy);
+const ItemList: React.FC<ItemListProps> = ({ sortBy }) => {
+  const { items, loading } = useItems(sortBy);
   const [showConfirm, setShowConfirm] = useState(false);
 
   const handleDelete = async (id: string) => {
@@ -48,10 +47,17 @@ const ItemList: React.FC<ItemListProps> = ({ selectedCategory, sortBy }) => {
           {items.map((item) => (
             <div key={item.id} className="bg-white rounded-xl shadow-md overflow-hidden transform hover:-translate-y-1 transition-transform duration-300 group relative">
               <button
-                onClick={() => handleDelete(item.id)}
-                className="absolute top-3 right-3 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-all duration-300 z-10"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleDelete(item.id);
+                }}
+                className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center bg-white/80 hover:bg-red-500 text-gray-600 hover:text-white rounded-full shadow-sm opacity-0 group-hover:opacity-100 transition-all duration-300 z-10 backdrop-blur-sm"
+                title="Delete item"
               >
-                &#x2715;
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
               <a href={item.link} target="_blank" rel="noopener noreferrer">
                 <img src={item.image || 'https://via.placeholder.com/400x300'} alt={item.title} className="w-full h-48 object-cover" />
