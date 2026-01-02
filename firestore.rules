@@ -1,0 +1,21 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Deny all reads and writes by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Allow reads and writes to categories and items collections
+    // This is a simplified rule for a single-user app.
+    // In a multi-user app, you would use authentication to restrict access.
+    match /categories/{categoryId} {
+      allow read, write: if true;
+    }
+
+    match /items/{itemId} {
+      allow read, write: if true;
+    }
+  }
+}
