@@ -1,7 +1,9 @@
+@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap');
 @import "tailwindcss";
 
 @layer base {
   body {
-    @apply bg-gray-100;
+    font-family: 'Fredoka', sans-serif;
+    @apply bg-stone-100; /* Light, creamy/blush-tinted background */
   }
 }
