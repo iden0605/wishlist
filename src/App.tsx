@@ -21,9 +21,8 @@ function App() {
   // Combine all loading states
   const isGlobalLoading = isItemsLoading || isAddItemLoading;
 
-  const handleSortChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const [field, direction] = e.target.value.split('-') as [string, 'asc' | 'desc'];
-    setSortBy({ field, direction });
+  const handleSortChange = (sortByValue: SortByType) => {
+    setSortBy(sortByValue);
   };
 
   useEffect(() => {

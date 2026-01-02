@@ -35,7 +35,7 @@ const CharacterAnimation: React.FC<CharacterAnimationProps> = ({
   const kickTimeoutRef = useRef<number | null>(null);
 
   const characterSize = { width: 64, height: 64 }; // Base size for mobile, will be overridden by CSS for larger screens
-  const speed = 3;
+  const speed = 4;
   const reachedThreshold = 5;
 
   const horizontalMargin = -50;
@@ -61,28 +61,32 @@ const CharacterAnimation: React.FC<CharacterAnimationProps> = ({
 
     const patrolPath: PathPoint[] = [];
 
+    // Start at top-left
     patrolPath.push({
       x: rect.x - horizontalMargin - characterSize.width - 27,
       y: rect.y - verticalMargin - characterSize.height,
-      direction: 'east',
+      direction: 'east', // Start by moving east along the top side
     });
 
+    // Move to top-right
     patrolPath.push({
       x: rect.x + rect.width + horizontalMargin + 30,
       y: rect.y - verticalMargin - characterSize.height,
-      direction: 'south',
+      direction: 'south', // Move south along the right side
     });
 
+    // Move to bottom-right
     patrolPath.push({
       x: rect.x + rect.width + horizontalMargin + 30,
       y: rect.y + rect.height + verticalMargin - 30,
-      direction: 'west',
+      direction: 'west', // Move west along the bottom side
     });
 
+    // Move to bottom-left
     patrolPath.push({
       x: rect.x - horizontalMargin - characterSize.width - 27,
       y: rect.y + rect.height + verticalMargin - 30,
-      direction: 'north',
+      direction: 'north', // Move north along the left side
     });
 
     return patrolPath;
