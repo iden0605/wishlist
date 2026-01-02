@@ -16,6 +16,12 @@ jobs:
           node-version: '20'
       - name: Install Dependencies
         run: npm ci
+      - name: Debug Secrets
+        run: |
+          if [ -n "$VITE_FIREBASE_API_KEY" ]; then echo "VITE_FIREBASE_API_KEY is set"; else echo "VITE_FIREBASE_API_KEY is NOT set"; fi
+        env:
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+
       - name: Build
         run: npm run build
         env:
