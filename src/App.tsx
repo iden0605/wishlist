@@ -45,10 +45,11 @@ function App() {
   const [sortBy, setSortBy] = useState<SortByType>({ field: 'createdAt', direction: 'desc' });
   const [isAddItemLoading, setIsAddItemLoading] = useState(false);
   const [showImages, setShowImages] = useState(true);
+  const [showFavorites, setShowFavorites] = useState(false);
 
   const addItemRef = useRef<HTMLDivElement>(null);
 
-  const { loading: isItemsLoading } = useItems(sortBy);
+  const { items, loading: isItemsLoading } = useItems(sortBy, 50, showFavorites);
 
   const isGlobalLoading = isItemsLoading || isAddItemLoading;
 
@@ -60,6 +61,9 @@ function App() {
     setShowImages(show);
   };
 
+  const handleFilterFavoritesChange = (show: boolean) => {
+    setShowFavorites(show);
+  };
 
   const handleUnlock = () => {
     if (password === import.meta.env.VITE_APP_PASSWORD) {
@@ -83,16 +87,18 @@ function App() {
   }, []);
 
   return (
-    <div className="container mx-auto p-4 md:p-8 bg-blue-100 rounded-3xl shadow-xl border-4 border-blue-300 relative">
-      {!isUnlocked && (
-        <button
-          onClick={promptForPassword}
-          className="absolute top-4 right-4 bg-blue-300 hover:bg-blue-400 text-white font-semibold py-2 px-4 rounded-full shadow-lg transition-all duration-300 transform hover:scale-105 z-20"
-        >
-          Unlock Editing 🔓
-        </button>
-      )}
-      <h1 className="text-4xl md:text-5xl font-semibold text-center my-6 md:my-8 text-stone-700 text-shadow-md">Jocelyn's Wishlist ✨</h1>
+    <div className="container mx-auto p-4 md:p-8 bg-blue-100 rounded-3xl shadow-xl border-4 border-blue-300">
+      <div className="relative h-10 mb-2">
+        {!isUnlocked && (
+          <button
+            onClick={promptForPassword}
+            className="absolute top-0 right-0 bg-blue-300 hover:bg-blue-400 text-white font-semibold py-1 px-3 text-sm sm:py-2 sm:px-4 sm:text-base rounded-full shadow-lg transition-all duration-300 transform hover:scale-105"
+          >
+            Unlock 🔓
+          </button>
+        )}
+      </div>
+      <h1 className="text-3xl sm:text-4xl md:text-5xl font-semibold text-center my-2 md:my-4 text-stone-700 text-shadow-md">Jocelyn's Wishlist ✨</h1>
       <CharacterAnimation
         isLoading={isGlobalLoading}
         addItemRef={addItemRef as React.RefObject<HTMLDivElement>}
@@ -104,8 +110,10 @@ function App() {
         onSortChange={handleSortChange}
         onShowImagesChange={handleShowImagesChange}
         showImages={showImages}
+        onFilterFavoritesChange={handleFilterFavoritesChange}
+        showFavorites={showFavorites}
       />
-      <ItemList sortBy={sortBy} isUnlocked={isUnlocked} promptForPassword={promptForPassword} showImages={showImages} />
+      <ItemList items={items} loading={isItemsLoading} isUnlocked={isUnlocked} promptForPassword={promptForPassword} showImages={showImages} />
 
       {showPasswordPrompt && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">

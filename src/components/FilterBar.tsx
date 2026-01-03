@@ -6,6 +6,8 @@ interface FilterBarProps {
   onSortChange: (sortBy: SortByType) => void;
   onShowImagesChange: (show: boolean) => void;
   showImages: boolean;
+  onFilterFavoritesChange: (show: boolean) => void;
+  showFavorites: boolean;
 }
 
 interface SortOption {
@@ -16,15 +18,15 @@ interface SortOption {
 }
 
 const sortOptions: SortOption[] = [
-  { value: 'createdAt-desc', label: '✨ Newest First', field: 'createdAt', direction: 'desc' },
-  { value: 'createdAt-asc', label: '🕰️ Oldest First', field: 'createdAt', direction: 'asc' },
+  { value: 'createdAt-desc', label: '✨ Newest', field: 'createdAt', direction: 'desc' },
+  { value: 'createdAt-asc', label: '🕰️ Oldest', field: 'createdAt', direction: 'asc' },
   { value: 'title-asc', label: ' alphabetically (A-Z)', field: 'title', direction: 'asc' },
   { value: 'title-desc', label: ' alphabetically (Z-A)', field: 'title', direction: 'desc' },
-  { value: 'price-asc', label: ' Cheapest First', field: 'price', direction: 'asc' },
-  { value: 'price-desc', label: ' Most Expensive First', field: 'price', direction: 'desc' },
+  { value: 'price-asc', label: ' Cheapest', field: 'price', direction: 'asc' },
+  { value: 'price-desc', label: ' Costliest', field: 'price', direction: 'desc' },
 ];
 
-const FilterBar = forwardRef<HTMLDivElement, FilterBarProps>(({ onSortChange, onShowImagesChange, showImages }, ref) => {
+const FilterBar = forwardRef<HTMLDivElement, FilterBarProps>(({ onSortChange, onShowImagesChange, showImages, onFilterFavoritesChange, showFavorites }, ref) => {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedLabel, setSelectedLabel] = useState(sortOptions[0].label);
 
@@ -36,17 +38,31 @@ const FilterBar = forwardRef<HTMLDivElement, FilterBarProps>(({ onSortChange, on
 
   return (
     <div ref={ref} className="flex flex-col sm:flex-row justify-between items-center mb-6 p-3 sm:p-4 bg-white rounded-2xl shadow-lg border-2 border-stone-200 animate-pop-in">
-      <div className="flex items-center">
-        <label className="text-stone-700 font-semibold mr-3 text-lg sm:text-xl text-shadow-sm">Show Images:</label>
-        <button
-          type="button"
-          onClick={() => onShowImagesChange(!showImages)}
-          className={`relative inline-flex items-center h-6 rounded-full w-11 transition-colors duration-300 focus:outline-none focus:ring-4 focus:ring-blue-300 ${showImages ? 'bg-blue-300' : 'bg-stone-300'}`}
-        >
-          <span
-            className={`inline-block w-4 h-4 transform bg-white rounded-full transition-transform duration-300 ${showImages ? 'translate-x-6' : 'translate-x-1'}`}
-          />
-        </button>
+      <div className="flex items-center gap-x-4">
+        <div>
+          <label className="text-stone-700 font-semibold mr-3 text-lg sm:text-xl text-shadow-sm">Show Images:</label>
+          <button
+            type="button"
+            onClick={() => onShowImagesChange(!showImages)}
+            className={`relative inline-flex items-center h-6 rounded-full w-11 transition-colors duration-300 focus:outline-none focus:ring-4 focus:ring-blue-300 ${showImages ? 'bg-blue-300' : 'bg-stone-300'}`}
+          >
+            <span
+              className={`inline-block w-4 h-4 transform bg-white rounded-full transition-transform duration-300 ${showImages ? 'translate-x-6' : 'translate-x-1'}`}
+            />
+          </button>
+        </div>
+        <div>
+          <label className="text-stone-700 font-semibold mr-3 text-lg sm:text-xl text-shadow-sm">Favorites Only:</label>
+          <button
+            type="button"
+            onClick={() => onFilterFavoritesChange(!showFavorites)}
+            className={`relative inline-flex items-center h-6 rounded-full w-11 transition-colors duration-300 focus:outline-none focus:ring-4 focus:ring-blue-300 ${showFavorites ? 'bg-blue-300' : 'bg-stone-300'}`}
+          >
+            <span
+              className={`inline-block w-4 h-4 transform bg-white rounded-full transition-transform duration-300 ${showFavorites ? 'translate-x-6' : 'translate-x-1'}`}
+            />
+          </button>
+        </div>
       </div>
       <div className="flex items-center mt-4 sm:mt-0">
         <label className="text-stone-700 font-semibold mr-3 text-lg sm:text-xl text-shadow-sm whitespace-nowrap">Sort By:</label>

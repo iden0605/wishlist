@@ -27,6 +27,7 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange, isUnlocked, promptFo
   const [manualTitle, setManualTitle] = useState('');
   const [manualImage, setManualImage] = useState('');
   const [manualPrice, setManualPrice] = useState('');
+  const [manualRemarks, setManualRemarks] = useState('');
   const [showManualFields, setShowManualFields] = useState(false);
   
   const [loading, setLoading] = useState(false);
@@ -45,6 +46,7 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange, isUnlocked, promptFo
     setManualTitle('');
     setManualImage('');
     setManualPrice('');
+    setManualRemarks('');
     setShowManualFields(false);
     setError('');
   };
@@ -107,6 +109,8 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange, isUnlocked, promptFo
         price: manualPrice ? parseFloat(manualPrice) : 0,
         link: activeTab === 'search' && selectedResult ? selectedResult.url : link,
         createdAt: serverTimestamp(),
+        remarks: manualRemarks,
+        favorite: false,
       });
       resetForm();
     } catch (err) {
@@ -150,6 +154,7 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange, isUnlocked, promptFo
       setManualTitle(''); // Clear fields on error
       setManualImage('');
       setManualPrice('');
+      setManualRemarks('');
       setError('Could not fetch item details. Please enter them manually.');
     } finally {
       setLoading(false);
@@ -279,6 +284,11 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange, isUnlocked, promptFo
                 </div>
               </div>
 
+              <div className="mb-4 sm:mb-5">
+                <label className="block text-stone-700 text-sm sm:text-md font-bold mb-1 sm:mb-2 text-shadow-sm">Remarks</label>
+                <textarea value={manualRemarks} onChange={(e) => setManualRemarks(e.target.value)} placeholder="e.g. For birthdays, special occasions" className="border-2 border-stone-200 rounded-xl w-full p-2 sm:p-3 shadow-md focus:outline-none focus:ring-4 focus:ring-blue-300 text-stone-700 placeholder-stone-400" />
+              </div>
+
               <button type="submit" disabled={loading} className="w-full bg-blue-300 hover:bg-blue-400 text-white font-extrabold py-3 sm:py-4 px-4 rounded-full shadow-lg transition-all duration-300 transform hover:scale-105 disabled:opacity-60 disabled:cursor-not-allowed text-lg text-shadow-sm">
                 {loading ? 'Adding magic...' : 'Grant My Wish! ✨'}
               </button>
@@ -320,6 +330,10 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange, isUnlocked, promptFo
               <div className="mb-4 sm:mb-6">
                 <label htmlFor="manualPrice" className="block text-stone-700 text-sm sm:text-md font-medium mb-1 sm:mb-2 text-shadow-sm">Dreamy Price (Optional)</label>
                 <input type="number" id="manualPrice" value={manualPrice} onChange={(e) => setManualPrice(e.target.value)} placeholder="0.00" step="0.01" className="border-2 border-stone-200 rounded-xl w-full p-2 sm:p-3 shadow-md focus:outline-none focus:ring-4 focus:ring-blue-300 text-stone-700 placeholder-stone-400" />
+              </div>
+              <div className="mb-4 sm:mb-6">
+                <label htmlFor="manualRemarks" className="block text-stone-700 text-sm sm:text-md font-medium mb-1 sm:mb-2 text-shadow-sm">Remarks (Optional)</label>
+                <textarea id="manualRemarks" value={manualRemarks} onChange={(e) => setManualRemarks(e.target.value)} placeholder="e.g. For birthdays, special occasions" className="border-2 border-stone-200 rounded-xl w-full p-2 sm:p-3 shadow-md focus:outline-none focus:ring-4 focus:ring-blue-300 text-stone-700 placeholder-stone-400" />
               </div>
               <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
                 <button

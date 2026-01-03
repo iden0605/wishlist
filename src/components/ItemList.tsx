@@ -1,20 +1,22 @@
 import { useState, forwardRef } from 'react';
-import { useItems, type SortByType } from '@/hooks/useItems';
-import { doc, deleteDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
+import { type Item } from '@/hooks/useItems';
+import { doc, deleteDoc, collection, getDocs, writeBatch, updateDoc } from 'firebase/firestore';
+import { FaPencilAlt, FaHeart } from 'react-icons/fa';
 import { db } from '@/lib/firebase';
 
 interface ItemListProps {
-  sortBy: SortByType;
+  items: Item[];
+  loading: boolean;
   isUnlocked: boolean;
   promptForPassword: () => void;
   showImages: boolean;
 }
 
-const ItemList = forwardRef<HTMLDivElement, ItemListProps>(({ sortBy, isUnlocked, promptForPassword, showImages }, ref) => {
-  const { items, loading } = useItems(sortBy);
+const ItemList = forwardRef<HTMLDivElement, ItemListProps>(({ items, loading, isUnlocked, promptForPassword, showImages }, ref) => {
   const [showConfirm, setShowConfirm] = useState(false);
   const [showFinalConfirm, setShowFinalConfirm] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
+  const [editingItem, setEditingItem] = useState<Item | null>(null);
 
   const handleDelete = async (id:string) => {
     if (!isUnlocked) {
@@ -30,6 +32,37 @@ const ItemList = forwardRef<HTMLDivElement, ItemListProps>(({ sortBy, isUnlocked
       handleDelete(itemToDelete);
       setItemToDelete(null);
     }
+  };
+
+  const handleFavoriteToggle = async (id: string, currentStatus: boolean) => {
+    if (!isUnlocked) {
+      promptForPassword();
+      return;
+    }
+    const itemDoc = doc(db, 'items', id);
+    await updateDoc(itemDoc, {
+      favorite: !currentStatus,
+    });
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!isUnlocked || !editingItem) {
+      promptForPassword();
+      return;
+    }
+
+    const formData = new FormData(e.currentTarget);
+    const updatedData = {
+      title: formData.get('title') as string,
+      price: parseFloat((formData.get('price') as string) || '0'),
+      remarks: formData.get('remarks') as string,
+    };
+
+    const itemDoc = doc(db, 'items', editingItem.id);
+    await updateDoc(itemDoc, updatedData);
+
+    setEditingItem(null);
   };
 
   const handleClearAll = async () => {
@@ -76,29 +109,58 @@ const ItemList = forwardRef<HTMLDivElement, ItemListProps>(({ sortBy, isUnlocked
       ) : (
         <div ref={ref} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-8">
           {items.map((item, index) => (
-            <div key={item.id} className="bg-white rounded-2xl shadow-xl overflow-hidden transform hover:-translate-y-2 transition-all duration-300 group relative border-2 border-stone-200 animate-pop-in" style={{ animationDelay: `${index * 0.1}s` }}>
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setItemToDelete(item.id);
-                }}
-                className="absolute top-2 right-2 w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center bg-white/70 hover:bg-blue-500 text-stone-600 hover:text-white rounded-full shadow-lg transition-all duration-300 z-10 backdrop-blur-sm border border-stone-300 lg:opacity-0 lg:group-hover:opacity-100"
-                title="Delete item"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 sm:h-6 sm:w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-              <a href={item.link} target="_blank" rel="noopener noreferrer">
+            <div key={item.id} className="bg-white rounded-2xl shadow-xl overflow-hidden transform hover:-translate-y-2 transition-all duration-300 group relative border-2 border-stone-200 animate-pop-in flex flex-col" style={{ animationDelay: `${index * 0.1}s` }}>
+              <div className="absolute top-2 right-2 z-10 flex gap-2">
+                <button
+                  onClick={() => handleFavoriteToggle(item.id, item.favorite ?? false)}
+                  disabled={!isUnlocked}
+                  className={`w-10 h-10 flex items-center justify-center rounded-full transition-all duration-300 backdrop-blur-sm border border-stone-300
+                    ${isUnlocked ? 'cursor-pointer active:scale-125' : 'cursor-not-allowed'}
+                    ${item.favorite
+                      ? 'bg-red-400 text-white' + (isUnlocked ? ' hover:bg-red-300' : '')
+                      : 'bg-white/70 text-stone-600' + (isUnlocked ? ' hover:bg-red-100 hover:text-red-500' : '')
+                    }`}
+                  title={isUnlocked ? (item.favorite ? 'Unfavorite' : 'Favorite') : 'Unlock to favorite'}
+                >
+                  <FaHeart className={item.favorite ? 'fill-current' : ''} />
+                </button>
+              </div>
+              <a href={item.link} target="_blank" rel="noopener noreferrer" className="block">
                 {showImages && <img src={item.image || 'https://via.placeholder.com/400x300/E0F2F7/4A4A4A?text=No+Image'} alt={item.title} className="w-full h-40 sm:h-48 object-contain rounded-t-xl" />}
-                <div className="p-3 sm:p-4">
-                  <h3 className="text-base sm:text-xl font-semibold text-stone-700 truncate text-shadow-sm">{item.title}</h3>
-                  <p className="text-blue-400 font-semibold text-md sm:text-lg mt-1 sm:mt-2 text-shadow-sm">
-                    {item.price ? `$${item.price.toFixed(2)}` : 'Price unknown!'}
-                  </p>
-                </div>
               </a>
+              <div className="p-3 sm:p-4 flex-grow">
+                <h3 className="text-base sm:text-xl font-semibold text-stone-700 truncate text-shadow-sm">{item.title}</h3>
+                <p className="text-blue-400 font-semibold text-md sm:text-lg mt-1 sm:mt-2 text-shadow-sm">
+                  {item.price ? `$${item.price.toFixed(2)}` : 'Price unknown!'}
+                </p>
+                {item.remarks && (
+                  <p className="text-sm text-stone-600 mt-2 italic bg-stone-100 p-2 rounded-lg break-words">"{item.remarks}"</p>
+                )}
+              </div>
+              {isUnlocked && (
+                <div className="p-3 border-t border-stone-200 bg-stone-50 flex items-center justify-end gap-2">
+                  <button
+                    onClick={() => setEditingItem(item)}
+                    className="w-10 h-10 flex items-center justify-center bg-stone-200 text-stone-600 hover:bg-blue-200 rounded-full transition-colors duration-300"
+                    title="Edit item"
+                  >
+                    <FaPencilAlt className="w-5 h-5" />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setItemToDelete(item.id);
+                    }}
+                    className="w-10 h-10 flex items-center justify-center bg-stone-200 text-stone-600 hover:bg-red-400 hover:text-white rounded-full transition-colors duration-300"
+                    title="Delete item"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -154,6 +216,53 @@ const ItemList = forwardRef<HTMLDivElement, ItemListProps>(({ sortBy, isUnlocked
                 CONFIRM DELETION
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {editingItem && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-8 sm:p-10 rounded-3xl shadow-2xl border-4 border-blue-300 text-left max-w-lg w-full animate-pop-in">
+            <h3 className="text-xl sm:text-2xl font-semibold text-stone-700 mb-4 sm:mb-6 text-shadow-md">Edit Wish</h3>
+            <form onSubmit={handleEditSubmit}>
+              <div className="mb-4">
+                <label className="block text-stone-700 text-sm font-bold mb-2">Title</label>
+                <input
+                  type="text"
+                  name="title"
+                  defaultValue={editingItem.title}
+                  required
+                  className="border-2 border-stone-200 rounded-xl w-full p-3 shadow-md focus:outline-none focus:ring-4 focus:ring-blue-300"
+                />
+              </div>
+              <div className="mb-4">
+                <label className="block text-stone-700 text-sm font-bold mb-2">Price</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  name="price"
+                  defaultValue={editingItem.price}
+                  className="border-2 border-stone-200 rounded-xl w-full p-3 shadow-md focus:outline-none focus:ring-4 focus:ring-blue-300"
+                />
+              </div>
+              <div className="mb-6">
+                <label className="block text-stone-700 text-sm font-bold mb-2">Remarks</label>
+                <textarea
+                  name="remarks"
+                  defaultValue={editingItem.remarks || ''}
+                  className="border-2 border-stone-200 rounded-xl w-full p-3 shadow-md focus:outline-none focus:ring-4 focus:ring-blue-300"
+                  rows={3}
+                />
+              </div>
+              <div className="flex justify-end gap-4">
+                <button type="button" onClick={() => setEditingItem(null)} className="px-6 py-3 rounded-full bg-stone-200 text-stone-700 font-medium hover:bg-stone-300 transition-all duration-300 transform hover:scale-105">
+                  Cancel
+                </button>
+                <button type="submit" className="px-6 py-3 rounded-full bg-blue-300 text-white font-medium hover:bg-blue-400 transition-all duration-300 transform hover:scale-105">
+                  Save Changes
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

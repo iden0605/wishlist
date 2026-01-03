@@ -86,14 +86,14 @@ const CharacterAnimation: React.FC<CharacterAnimationProps> = ({
 
     // Move to top-right
     patrolPath.push({
-      x: rect.x + rect.width + horizontalMargin + 30,
+      x: rect.x + rect.width + horizontalMargin + 20,
       y: rect.y - verticalMargin - characterSize.height,
       direction: 'south',
     });
 
     // Move to bottom-right
     patrolPath.push({
-      x: rect.x + rect.width + horizontalMargin + 30,
+      x: rect.x + rect.width + horizontalMargin + 20,
       y: rect.y + rect.height + verticalMargin - 30,
       direction: 'west',
     });
@@ -106,6 +106,19 @@ const CharacterAnimation: React.FC<CharacterAnimationProps> = ({
     });
 
     return patrolPath;
+  };
+
+  const resetAnimation = () => {
+    setIsInitialized(false);
+    setIsGettingUp(true);
+    setCurrentPathIndex(0);
+    setIsHovered(false);
+    setAttack(null);
+    setIsBreathing(false);
+    if (actionTimeoutRef.current) {
+      clearTimeout(actionTimeoutRef.current);
+      actionTimeoutRef.current = null;
+    }
   };
 
   useEffect(() => {
@@ -160,17 +173,15 @@ const CharacterAnimation: React.FC<CharacterAnimationProps> = ({
     }
 
     const handleResize = () => {
-      const newPath = generatePath();
-      setPath(newPath);
-      if (currentPathIndex >= newPath.length) {
-        setCurrentPathIndex(0);
-      }
+      resetAnimation();
     };
 
     window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', handleResize);
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
     };
   }, [addItemRef, characterSize.width, characterSize.height, isInitialized]);
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, onSnapshot, query, orderBy, limit, type OrderByDirection } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, limit, where, type OrderByDirection, type QueryConstraint } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
 export interface Item {
@@ -8,6 +8,8 @@ export interface Item {
   image: string;
   price: number;
   link: string;
+  remarks?: string;
+  favorite?: boolean;
   createdAt: {
     seconds: number;
     nanoseconds: number;
@@ -20,18 +22,23 @@ export type SortByType = {
 };
 
 // Optimized version with limit and error handling
-export const useItems = (sortBy: SortByType, limitCount = 50) => {
+export const useItems = (sortBy: SortByType, limitCount = 50, showFavorites = false) => {
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const itemsCollection = collection(db, 'items');
     
-    const q = query(
-      itemsCollection, 
-      orderBy(sortBy.field, sortBy.direction),
-      limit(limitCount)
-    );
+    const queryConstraints: QueryConstraint[] = [];
+
+    if (showFavorites) {
+      queryConstraints.push(where('favorite', '==', true));
+    }
+
+    queryConstraints.push(orderBy(sortBy.field, sortBy.direction));
+    queryConstraints.push(limit(limitCount));
+    
+    const q = query(itemsCollection, ...queryConstraints);
 
     const unsubscribe = onSnapshot(q, 
       (querySnapshot) => {
@@ -49,7 +56,7 @@ export const useItems = (sortBy: SortByType, limitCount = 50) => {
     );
 
     return () => unsubscribe();
-  }, [sortBy.field, sortBy.direction, limitCount]); // Depend on primitives
+  }, [sortBy.field, sortBy.direction, limitCount, showFavorites]); // Depend on primitives
 
   return { items, loading };
 };
