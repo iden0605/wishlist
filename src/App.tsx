@@ -10,6 +10,7 @@ function App() {
   const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [showSuccessPopup, setShowSuccessPopup] = useState(false);
 
   useEffect(() => {
     const unlockTimestamp = localStorage.getItem('unlockTimestamp');
@@ -22,6 +23,15 @@ function App() {
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (showSuccessPopup) {
+      const timer = setTimeout(() => {
+        setShowSuccessPopup(false);
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [showSuccessPopup]);
 
   const [sortBy, setSortBy] = useState<SortByType>({ field: 'createdAt', direction: 'desc' });
   const [isAddItemLoading, setIsAddItemLoading] = useState(false);
@@ -41,6 +51,7 @@ function App() {
     setShowImages(show);
   };
 
+
   const handleUnlock = () => {
     if (password === import.meta.env.VITE_APP_PASSWORD) {
       setIsUnlocked(true);
@@ -48,6 +59,7 @@ function App() {
       setShowPasswordPrompt(false);
       setError('');
       setPassword('');
+      setShowSuccessPopup(true);
     } else {
       setError('Incorrect password. Please try again.');
     }
@@ -120,6 +132,17 @@ function App() {
                 Unlock 🔑
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showSuccessPopup && (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-6 sm:p-10 rounded-3xl shadow-xl max-w-sm w-full border-4 border-green-400 transform scale-95 animate-pop-in">
+            <h2 className="text-2xl sm:text-3xl font-semibold text-center text-green-700 mb-3 sm:mb-4 text-shadow-md">
+              Successfully Unlocked!
+            </h2>
+            <img src="/animations/jump.gif" alt="Unlocked" className="mx-auto w-32 h-32 sm:w-40 sm:h-40" />
           </div>
         </div>
       )}
