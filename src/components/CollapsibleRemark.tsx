@@ -15,12 +15,12 @@ const CollapsibleRemark: React.FC<CollapsibleRemarkProps> = ({ remark }) => {
     const element = contentRef.current;
     if (element) {
       const styles = window.getComputedStyle(element);
-      const lineHeight = parseInt(styles.lineHeight, 8);
-      const paddingTop = parseInt(styles.paddingTop, 10);
-      const paddingBottom = parseInt(styles.paddingBottom, 10);
+      const lineHeight = parseFloat(styles.lineHeight);
+      const paddingTop = parseFloat(styles.paddingTop);
+      const paddingBottom = parseFloat(styles.paddingBottom);
       const singleLineHeight = lineHeight + paddingTop + paddingBottom;
 
-      setCollapsedHeight(`${singleLineHeight}px`);
+      setCollapsedHeight(`${singleLineHeight - 3}px`);
       setFullHeight(`${element.scrollHeight}px`);
       
       if (element.scrollHeight > singleLineHeight) {
@@ -40,7 +40,7 @@ const CollapsibleRemark: React.FC<CollapsibleRemarkProps> = ({ remark }) => {
         style={{ maxHeight: isTruncated && !isExpanded ? collapsedHeight : fullHeight }}
       >
         <p ref={contentRef} className="text-sm text-stone-600 italic bg-stone-100 p-2 rounded-lg break-words">
-          "{remark}"
+          {remark}
         </p>
       </div>
       

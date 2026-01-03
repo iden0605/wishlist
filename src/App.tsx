@@ -44,7 +44,7 @@ function App() {
 
   const [sortBy, setSortBy] = useState<SortByType>({ field: 'createdAt', direction: 'desc' });
   const [isAddItemLoading, setIsAddItemLoading] = useState(false);
-  const [showImages, setShowImages] = useState(true);
+  const [conciseMode, setConciseMode] = useState(false);
   const [showFavorites, setShowFavorites] = useState(false);
 
   const addItemRef = useRef<HTMLDivElement>(null);
@@ -57,8 +57,8 @@ function App() {
     setSortBy(sortByValue);
   };
 
-  const handleShowImagesChange = (show: boolean) => {
-    setShowImages(show);
+  const handleConciseModeChange = (concise: boolean) => {
+    setConciseMode(concise);
   };
 
   const handleFilterFavoritesChange = (show: boolean) => {
@@ -108,12 +108,12 @@ function App() {
       </div>
       <FilterBar
         onSortChange={handleSortChange}
-        onShowImagesChange={handleShowImagesChange}
-        showImages={showImages}
+        onConciseModeChange={handleConciseModeChange}
+        conciseMode={conciseMode}
         onFilterFavoritesChange={handleFilterFavoritesChange}
         showFavorites={showFavorites}
       />
-      <ItemList items={items} loading={isItemsLoading} isUnlocked={isUnlocked} promptForPassword={promptForPassword} showImages={showImages} />
+      <ItemList items={items} loading={isItemsLoading} isUnlocked={isUnlocked} promptForPassword={promptForPassword} conciseMode={conciseMode} />
 
       {showPasswordPrompt && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">

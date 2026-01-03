@@ -149,7 +149,7 @@ export const searchItems = async (
 
   try {
     // Step 1: Fetch search results (reduced to 8 for speed)
-    const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_API_KEY}&cx=${GOOGLE_SEARCH_ENGINE_ID}&q=${encodeURIComponent(query + ' buy price')}&num=8`;
+    const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_API_KEY}&cx=${GOOGLE_SEARCH_ENGINE_ID}&q=${encodeURIComponent(query + ' tangible product for sale')}&num=8`;
     
     const response = await fetchWithTimeout(searchUrl, 8000, signal);
     if (!response.ok) {
@@ -275,6 +275,77 @@ export const searchItems = async (
     throw error;
   }
 };
+
+export const getSearchSuggestions = (
+  query: string,
+  signal?: AbortSignal
+): Promise<string[]> => {
+  return new Promise((resolve, reject) => {
+    if (!query) {
+      return resolve([]);
+    }
+
+    const callbackName = `jsonp_callback_${Math.round(100000 * Math.random())}`;
+    const script = document.createElement('script');
+
+    const handleAbort = () => {
+      cleanup();
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    
+    const cleanup = () => {
+      if (script.parentNode) {
+        script.parentNode.removeChild(script);
+      }
+      delete (window as any)[callbackName];
+      signal?.removeEventListener('abort', handleAbort);
+    };
+
+    (window as any)[callbackName] = (data: any) => {
+      cleanup();
+      const suggestions = (data[1] || []).slice(0, 5);
+      console.log('Search suggestions from API:', suggestions);
+      resolve(suggestions);
+    };
+    
+    script.src = `https://suggestqueries.google.com/complete/search?client=firefox&q=${encodeURIComponent(query)}&callback=${callbackName}`;
+    script.onerror = () => {
+      cleanup();
+      reject(new Error('Failed to fetch suggestions.'));
+    };
+
+    if (signal?.aborted) {
+      return handleAbort();
+    }
+    
+    signal?.addEventListener('abort', handleAbort);
+    
+    document.body.appendChild(script);
+  });
+};
+
+export const getHotProducts = (): Promise<string[]> => {
+  console.log('Providing curated hot product suggestions');
+  
+  const hotProducts = [
+    'iPhone 17',
+    'Hermes Kelly Bag',
+    'PlayStation 6',
+    'Dyson Supersonic Hair Dryer',
+    'Lululemon Align Leggings',
+    'Rimowa Classic Cabin Suitcase',
+    'Leica M11 Camera',
+    'Chanel No. 5 Perfume',
+    'Nintendo Switch 2',
+    'Gucci Horsebit Loafers',
+  ];
+
+  // Shuffle the array to provide a different order each time
+  const shuffled = hotProducts.sort(() => 0.5 - Math.random());
+  
+  return Promise.resolve(shuffled.slice(0, 5));
+};
+
 
 // Clean up old cache entries periodically
 setInterval(() => {

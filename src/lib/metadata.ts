@@ -7,7 +7,7 @@ export interface Metadata {
   url: string;
 }
 
-const fetchWithTimeout = async (url: string, timeout = 8000): Promise<Response> => {
+const fetchWithTimeout = async (url: string, timeout = 15000): Promise<Response> => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
   
@@ -17,11 +17,13 @@ const fetchWithTimeout = async (url: string, timeout = 8000): Promise<Response> 
     return response;
   } catch (error) {
     clearTimeout(timeoutId);
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`Request timed out after ${timeout}ms`);
+    }
     throw error;
   }
 };
 
-// Extract price from text
 // Extract price from text
 const extractPriceFromText = (text: string): Price => {
   const currency = detectCurrency(text);
@@ -47,11 +49,99 @@ const extractPriceFromText = (text: string): Price => {
 // Clean title - remove site name and common suffixes
 const cleanTitle = (title: string): string => {
   return title
-    .replace(/\s*[-|:]\s*[^-|:]+$/, '') // Remove " - Site Name" or " | Site Name"
+    .replace(/\s*[-|:]\s*[^-|:]+$/, '')
     .trim();
 };
 
-// Main export function - direct scraping only
+// CORS proxies to try
+const corsProxies = [
+  (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  (url: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+];
+
+// Parse metadata from HTML
+const parseMetadataFromHtml = (html: string, urlToFetch: string): Metadata => {
+  // Parse title from HTML
+  const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+  const title = titleMatch?.[1]?.trim() || '';
+  
+  // Parse OG image
+  const ogImageMatch = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i);
+  const image = ogImageMatch?.[1] || '';
+  
+  // Parse price from meta tags or structured data
+  let price: Price = { amount: 0, currency: 'UNKNOWN' };
+  
+  // Try OG price
+  const ogPriceAmountMatch = html.match(/<meta[^>]*property=["'](?:product:price:amount|og:price:amount)["'][^>]*content=["']([^"']+)["']/i);
+  const ogPriceCurrencyMatch = html.match(/<meta[^>]*property=["'](?:product:price:currency|og:price:currency)["'][^>]*content=["']([^"']+)["']/i);
+
+  if (ogPriceAmountMatch?.[1]) {
+    const amount = parsePriceAmount(ogPriceAmountMatch[1]);
+    if (amount > 0) {
+      const currency = detectCurrency(ogPriceCurrencyMatch?.[1] || 'USD');
+      price = { amount, currency };
+    }
+  }
+  
+  // Try JSON-LD
+  if (price.amount === 0) {
+    const jsonLdMatch = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([^<]+)<\/script>/gi);
+    if (jsonLdMatch) {
+      for (const script of jsonLdMatch) {
+        const jsonMatch = script.match(/>([^<]+)</);
+        if (jsonMatch?.[1]) {
+          try {
+            const data = JSON.parse(jsonMatch[1]);
+            const jsonPrice = extractPriceFromJsonLd(data);
+            if (jsonPrice.amount > 0) {
+              price = jsonPrice;
+              break;
+            }
+          } catch {}
+        }
+      }
+    }
+  }
+  
+  // Fallback: search for price in HTML
+  if (price.amount === 0) {
+    price = extractPriceFromText(html);
+  }
+  
+  if (!title) {
+    throw new Error('Could not extract title from page');
+  }
+  
+  return {
+    title: cleanTitle(title),
+    image,
+    price,
+    url: urlToFetch
+  };
+};
+
+// Try fetching from a single proxy
+const tryProxy = async (proxyUrl: string, proxyName: string): Promise<string> => {
+  console.log(`🌐 Trying ${proxyName}...`);
+  const response = await fetchWithTimeout(proxyUrl, 15000);
+  
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  
+  const html = await response.text();
+  
+  if (!html || html.length < 100) {
+    throw new Error('Empty or invalid response');
+  }
+  
+  console.log(`✅ ${proxyName} succeeded!`);
+  return html;
+};
+
+// Main export function - parallel proxy racing
 export const fetchMetadata = async (url: string): Promise<Metadata> => {
   let urlToFetch = url.trim();
   
@@ -67,80 +157,38 @@ export const fetchMetadata = async (url: string): Promise<Metadata> => {
 
   console.log('🔍 Fetching metadata for:', urlToFetch);
 
-  try {
-    // Use a CORS proxy to fetch the page
-    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(urlToFetch)}`;
+  // Create proxy attempts with AbortControllers for cancellation
+  const controllers = corsProxies.map(() => new AbortController());
+  
+  const proxyPromises = corsProxies.map((proxyFn, index) => {
+    const proxyUrl = proxyFn(urlToFetch);
+    const proxyName = `Proxy ${index + 1}`;
     
-    const response = await fetchWithTimeout(proxyUrl, 10000);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch page (status ${response.status})`);
-    }
-    
-    const html = await response.text();
-    
-    // Parse title from HTML
-    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-    const title = titleMatch?.[1]?.trim() || '';
-    
-    // Parse OG image
-    const ogImageMatch = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i);
-    const image = ogImageMatch?.[1] || '';
-    
-    // Parse price from meta tags or structured data
-    let price: Price = { amount: 0, currency: 'UNKNOWN' };
-    
-    // Try OG price
-    const ogPriceAmountMatch = html.match(/<meta[^>]*property=["'](?:product:price:amount|og:price:amount)["'][^>]*content=["']([^"']+)["']/i);
-    const ogPriceCurrencyMatch = html.match(/<meta[^>]*property=["'](?:product:price:currency|og:price:currency)["'][^>]*content=["']([^"']+)["']/i);
+    return tryProxy(proxyUrl, proxyName)
+      .catch(error => {
+        console.warn(`❌ ${proxyName} failed:`, error.message);
+        throw error;
+      });
+  });
 
-    if (ogPriceAmountMatch?.[1]) {
-        const amount = parsePriceAmount(ogPriceAmountMatch[1]);
-        if (amount > 0) {
-            const currency = detectCurrency(ogPriceCurrencyMatch?.[1] || 'USD');
-            price = { amount, currency };
-        }
-    }
+  try {
+    // Race all proxies - first one to succeed wins!
+    const html = await Promise.any(proxyPromises);
     
-    // Try JSON-LD
-    if (price.amount === 0) {
-      const jsonLdMatch = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([^<]+)<\/script>/gi);
-      if (jsonLdMatch) {
-        for (const script of jsonLdMatch) {
-          const jsonMatch = script.match(/>([^<]+)</);
-          if (jsonMatch?.[1]) {
-            try {
-              const data = JSON.parse(jsonMatch[1]);
-              const jsonPrice = extractPriceFromJsonLd(data);
-              if (jsonPrice.amount > 0) {
-                price = jsonPrice;
-                break;
-              }
-            } catch {}
-          }
-        }
-      }
-    }
+    // Cancel any remaining requests (they're still running)
+    controllers.forEach(controller => controller.abort());
     
-    // Fallback: search for price in HTML
-    if (price.amount === 0) {
-      price = extractPriceFromText(html);
-    }
-    
-    if (!title) {
-      throw new Error('Could not extract title from page');
-    }
-    
-    const result = {
-      title: cleanTitle(title),
-      image,
-      price,
-      url: urlToFetch
-    };
-    
-    console.log('✅ Result:', result);
+    // Parse and return metadata
+    const result = parseMetadataFromHtml(html, urlToFetch);
+    console.log('✅ Final result:', result);
     return result;
+    
   } catch (error) {
-    console.error('❌ Direct scrape failed:', error);
+    // All proxies failed
+    if (error instanceof AggregateError) {
+      console.error('❌ All proxies failed:', error.errors.map(e => e.message));
+      throw new Error(`Could not fetch item details. All proxies failed.`);
+    }
     throw new Error('Could not fetch item details from this URL');
   }
 };
@@ -197,34 +245,31 @@ function extractPriceFromJsonLd(jsonld: any): Price {
 
 // Helper: Parse price string/number
 function parsePriceAmount(priceStr: string | number): number {
-    if (typeof priceStr === 'number') {
-        return priceStr > 0 ? priceStr : 0;
-    }
-    
-    if (!priceStr) return 0;
-    
-    // Keep only numbers, dots, and commas for parsing
-    const cleaned = String(priceStr).replace(/[^\d.,]/g, '');
-    
-    if (!cleaned) return 0;
-    
-    let normalized = cleaned;
-    
-    const hasComma = cleaned.includes(',');
-    const hasDot = cleaned.includes('.');
-    
-    // Handle thousand separators (e.g., 1,234.56 or 1.234,56)
-    if (hasComma && hasDot) {
-        normalized = cleaned.lastIndexOf(',') > cleaned.lastIndexOf('.')
-            ? cleaned.replace(/\./g, '').replace(',', '.') // European format: 1.234,56 -> 1234.56
-            : cleaned.replace(/,/g, '');                   // US format: 1,234.56 -> 1234.56
-    } else if (hasComma) {
-        // Handle comma as decimal (e.g., 12,34) or thousand separator (e.g., 1,234)
-        normalized = /,\d{2}$/.test(cleaned)
-            ? cleaned.replace(',', '.') // Decimal: 12,34 -> 12.34
-            : cleaned.replace(/,/g, '');   // Thousand: 1,234 -> 1234
-    }
-    
-    const parsed = parseFloat(normalized);
-    return (!isNaN(parsed) && parsed > 0) ? parsed : 0;
+  if (typeof priceStr === 'number') {
+    return priceStr > 0 ? priceStr : 0;
+  }
+  
+  if (!priceStr) return 0;
+  
+  const cleaned = String(priceStr).replace(/[^\d.,]/g, '');
+  
+  if (!cleaned) return 0;
+  
+  let normalized = cleaned;
+  
+  const hasComma = cleaned.includes(',');
+  const hasDot = cleaned.includes('.');
+  
+  if (hasComma && hasDot) {
+    normalized = cleaned.lastIndexOf(',') > cleaned.lastIndexOf('.')
+      ? cleaned.replace(/\./g, '').replace(',', '.')
+      : cleaned.replace(/,/g, '');
+  } else if (hasComma) {
+    normalized = /,\d{2}$/.test(cleaned)
+      ? cleaned.replace(',', '.')
+      : cleaned.replace(/,/g, '');
+  }
+  
+  const parsed = parseFloat(normalized);
+  return (!isNaN(parsed) && parsed > 0) ? parsed : 0;
 }

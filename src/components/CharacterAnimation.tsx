@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 // Define directions and corresponding GIF paths
 const GIF_PATHS = {
@@ -57,7 +57,7 @@ const CharacterAnimation: React.FC<CharacterAnimationProps> = ({
   const horizontalMargin = -50;
   const verticalMargin = -8;
 
-  const getDocumentRelativeCoords = (element?: HTMLElement | null) => {
+  const getDocumentRelativeCoords = useCallback((element?: HTMLElement | null) => {
     if (!element) return null;
     const rect = element.getBoundingClientRect();
     return {
@@ -66,9 +66,9 @@ const CharacterAnimation: React.FC<CharacterAnimationProps> = ({
       width: rect.width,
       height: rect.height,
     };
-  };
+  }, []);
 
-  const generatePath = (): PathPoint[] => {
+  const generatePath = useCallback((): PathPoint[] => {
     const addItemElement = addItemRef.current;
     if (!addItemElement) return [];
 
@@ -106,9 +106,9 @@ const CharacterAnimation: React.FC<CharacterAnimationProps> = ({
     });
 
     return patrolPath;
-  };
+  }, [addItemRef, characterSize.height, characterSize.width, getDocumentRelativeCoords]);
 
-  const resetAnimation = () => {
+  const resetAnimation = useCallback(() => {
     setIsInitialized(false);
     setIsGettingUp(true);
     setCurrentPathIndex(0);
@@ -119,7 +119,7 @@ const CharacterAnimation: React.FC<CharacterAnimationProps> = ({
       clearTimeout(actionTimeoutRef.current);
       actionTimeoutRef.current = null;
     }
-  };
+  }, []);
 
   useEffect(() => {
     const initCharacter = () => {
@@ -172,18 +172,23 @@ const CharacterAnimation: React.FC<CharacterAnimationProps> = ({
       initCharacter();
     }
 
+    let resizeTimeout: number;
     const handleResize = () => {
-      resetAnimation();
+      clearTimeout(resizeTimeout);
+      resizeTimeout = window.setTimeout(() => {
+        resetAnimation();
+      }, 250);
     };
 
     window.addEventListener('resize', handleResize);
     window.addEventListener('orientationchange', handleResize);
 
     return () => {
+      clearTimeout(resizeTimeout);
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('orientationchange', handleResize);
     };
-  }, [addItemRef, characterSize.width, characterSize.height, isInitialized]);
+  }, [addItemRef, characterSize.width, characterSize.height, isInitialized, resetAnimation, generatePath]);
 
   useEffect(() => {
     // Pause movement if loading, hovered, or kicking, but keep the direction
@@ -242,6 +247,29 @@ const CharacterAnimation: React.FC<CharacterAnimationProps> = ({
     return () => clearInterval(interval);
   }, [isLoading, isHovered, attack, isBreathing, position, currentPathIndex, path, isInitialized, characterSize.width, characterSize.height, direction, isGettingUp]);
 
+  // Broadcast character position via a custom event
+  useEffect(() => {
+    const dispatchPosition = () => {
+      window.dispatchEvent(new CustomEvent('character-move', {
+        detail: {
+          x: position.x,
+          y: position.y,
+          width: characterSize.width,
+          height: characterSize.height,
+        },
+      }));
+    };
+
+    dispatchPosition(); // Dispatch on every position change
+
+    const handleRequest = () => dispatchPosition(); // Also dispatch on request
+    window.addEventListener('request-character-position', handleRequest);
+
+    return () => {
+      window.removeEventListener('request-character-position', handleRequest);
+    };
+  }, [position, characterSize]);
+
   const handleAction = () => {
     if (isLoading || attack || isBreathing) return;
 
@@ -282,28 +310,33 @@ const CharacterAnimation: React.FC<CharacterAnimationProps> = ({
   useEffect(() => {
     if (!isInitialized || !addItemRef.current) return;
 
-    const checkHeightChange = () => {
-      const rect = getDocumentRelativeCoords(addItemRef.current);
-      if (!rect) return;
+    const element = addItemRef.current;
 
-      if (lastDivHeightRef.current !== rect.height) {
-        const heightDiff = rect.height - lastDivHeightRef.current;
-        lastDivHeightRef.current = rect.height;
+    const observer = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        const newHeight = entry.contentRect.height;
+        if (lastDivHeightRef.current !== newHeight) {
+          const heightDiff = newHeight - lastDivHeightRef.current;
+          lastDivHeightRef.current = newHeight;
 
-        // Update path with new dimensions
-        const newPath = generatePath();
-        setPath(newPath);
+          // Update path with new dimensions
+          const newPath = generatePath();
+          setPath(newPath);
 
-        // Adjust character position if on bottom side (indices 2 and 3)
-        if (currentPathIndex === 2 || currentPathIndex === 3) {
-          setPosition(prev => ({ x: prev.x, y: prev.y + heightDiff }));
+          // Adjust character position if on bottom side (indices 2 and 3)
+          if (currentPathIndex === 2 || currentPathIndex === 3) {
+            setPosition(prev => ({ x: prev.x, y: prev.y + heightDiff }));
+          }
         }
       }
-    };
+    });
 
-    const interval = setInterval(checkHeightChange, 200);
-    return () => clearInterval(interval);
-  }, [isInitialized, currentPathIndex]);
+    observer.observe(element);
+
+    return () => {
+      observer.unobserve(element);
+    };
+  }, [isInitialized, addItemRef, generatePath, currentPathIndex, getDocumentRelativeCoords]);
 
   // Determine which GIF to show
   const getCurrentGif = () => {
@@ -319,7 +352,7 @@ const CharacterAnimation: React.FC<CharacterAnimationProps> = ({
 
   return (
     <div
-      className="absolute z-50 w-16 h-16 lg:w-20 lg:h-20"
+      className="absolute z-10 w-16 h-16 lg:w-20 lg:h-20"
       style={{
         left: position.x,
         top: position.y,

@@ -12,10 +12,10 @@ interface ItemListProps {
   loading: boolean;
   isUnlocked: boolean;
   promptForPassword: () => void;
-  showImages: boolean;
+  conciseMode: boolean;
 }
 
-const ItemList = forwardRef<HTMLDivElement, ItemListProps>(({ items, loading, isUnlocked, promptForPassword, showImages }, ref) => {
+const ItemList = forwardRef<HTMLDivElement, ItemListProps>(({ items, loading, isUnlocked, promptForPassword, conciseMode }, ref) => {
   const [showConfirm, setShowConfirm] = useState(false);
   const [showFinalConfirm, setShowFinalConfirm] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
@@ -132,12 +132,14 @@ const ItemList = forwardRef<HTMLDivElement, ItemListProps>(({ items, loading, is
                 </button>
               </div>
               <a href={item.link} target="_blank" rel="noopener noreferrer" className="block">
-                {showImages && <img src={item.image || 'https://via.placeholder.com/400x300/E0F2F7/4A4A4A?text=No+Image'} alt={item.title} className="w-full h-40 sm:h-48 object-contain rounded-t-xl" />}
+                {!conciseMode && <img src={item.image || '/placeholder-item-image.png'} alt={item.title} className="w-full h-40 sm:h-48 object-contain rounded-t-xl" />}
               </a>
               <div className="p-3 sm:p-4 flex-grow">
-                <ItemName name={item.title} lineClamp={1} />
+                <div className={conciseMode ? 'pr-10' : ''}>
+                  <ItemName name={item.title} lineClamp={1} />
+                </div>
                 <PriceDisplay price={item.price} />
-                {item.remarks && (
+                {!conciseMode && item.remarks && (
                   <CollapsibleRemark remark={item.remarks} />
                 )}
               </div>
