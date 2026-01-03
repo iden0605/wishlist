@@ -20,10 +20,15 @@ module.exports = {
         '0%, 100%': { transform: 'rotate(-3deg)' },
         '50%': { transform: 'rotate(3deg)' },
       },
+      'slide-in-down': {
+        '0%': { opacity: '0', transform: 'translateY(-1rem)' },
+        '100%': { opacity: '1', transform: 'translateY(0)' },
+      },
     },
     animation: {
       'pop-in': 'pop-in 0.4s ease-out forwards',
       wiggle: 'wiggle 0.3s ease-in-out infinite',
+      'slide-in-down': 'slide-in-down 0.5s cubic-bezier(0.250, 0.460, 0.450, 0.940) forwards',
     },
   },
   plugins: [

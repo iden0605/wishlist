@@ -8,6 +8,16 @@ const GIF_PATHS = {
   west: '/animations/walking-west.gif',
   idle: '/animations/fighting-stance.gif',
   kick: '/animations/kick.gif',
+  uppercut: '/animations/uppercut.gif',
+  breathing: '/animations/breathing.gif',
+  sweepkick: '/animations/sweepkick.gif',
+  getup: '/animations/getup.gif',
+};
+
+const ANIMATION_DURATIONS: Record<'kick' | 'uppercut' | 'sweepkick', number> = {
+  kick: 1500,
+  uppercut: 1500,
+  sweepkick: 1500,
 };
 
 interface CharacterAnimationProps {
@@ -31,11 +41,17 @@ const CharacterAnimation: React.FC<CharacterAnimationProps> = ({
   const [currentPathIndex, setCurrentPathIndex] = useState(0);
   const [isInitialized, setIsInitialized] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
-  const [isKicking, setIsKicking] = useState(false);
-  const kickTimeoutRef = useRef<number | null>(null);
+  const [attack, setAttack] = useState<'kick' | 'uppercut' | 'sweepkick' | null>(null);
+  const [animationKey, setAnimationKey] = useState(0);
+  const [isBreathing, setIsBreathing] = useState(false);
+  const [isGettingUp, setIsGettingUp] = useState(true);
+  const actionTimeoutRef = useRef<number | null>(null);
+  const lastAttackRef = useRef<'kick' | 'uppercut' | 'sweepkick'>('sweepkick');
+  const scrollOffsetRef = useRef({ x: 0, y: 0 });
+  const lastDivHeightRef = useRef<number>(0);
 
-  const characterSize = { width: 64, height: 64 }; // Base size for mobile, will be overridden by CSS for larger screens
-  const speed = 4;
+  const characterSize = { width: 64, height: 64 };
+  const speed = 5;
   const reachedThreshold = 5;
 
   const horizontalMargin = -50;
@@ -65,28 +81,28 @@ const CharacterAnimation: React.FC<CharacterAnimationProps> = ({
     patrolPath.push({
       x: rect.x - horizontalMargin - characterSize.width - 27,
       y: rect.y - verticalMargin - characterSize.height,
-      direction: 'east', // Start by moving east along the top side
+      direction: 'east',
     });
 
     // Move to top-right
     patrolPath.push({
       x: rect.x + rect.width + horizontalMargin + 30,
       y: rect.y - verticalMargin - characterSize.height,
-      direction: 'south', // Move south along the right side
+      direction: 'south',
     });
 
     // Move to bottom-right
     patrolPath.push({
       x: rect.x + rect.width + horizontalMargin + 30,
       y: rect.y + rect.height + verticalMargin - 30,
-      direction: 'west', // Move west along the bottom side
+      direction: 'west',
     });
 
     // Move to bottom-left
     patrolPath.push({
       x: rect.x - horizontalMargin - characterSize.width - 27,
       y: rect.y + rect.height + verticalMargin - 30,
-      direction: 'north', // Move north along the left side
+      direction: 'north',
     });
 
     return patrolPath;
@@ -98,9 +114,19 @@ const CharacterAnimation: React.FC<CharacterAnimationProps> = ({
       if (newPath.length > 0 && !isInitialized) {
         setPosition(newPath[0]);
         setPath(newPath);
-        setIsInitialized(true);
+        
+        setTimeout(() => {
+          setIsGettingUp(false);
+          setIsInitialized(true);
+        }, 1000);
+
         setCurrentPathIndex(0);
         setDirection(newPath[0].direction);
+        scrollOffsetRef.current = { x: window.scrollX, y: window.scrollY };
+        
+        // Store initial height
+        const rect = getDocumentRelativeCoords(addItemRef.current);
+        if (rect) lastDivHeightRef.current = rect.height;
       } else if (!isInitialized) {
         setPosition({
           x: window.scrollX + (window.innerWidth / 2) - (characterSize.width / 2),
@@ -108,7 +134,20 @@ const CharacterAnimation: React.FC<CharacterAnimationProps> = ({
         });
         setDirection('idle');
         setIsInitialized(true);
+        scrollOffsetRef.current = { x: window.scrollX, y: window.scrollY };
       } else if (newPath.length > 0) {
+        // Check if height changed
+        const rect = getDocumentRelativeCoords(addItemRef.current);
+        if (rect && lastDivHeightRef.current !== rect.height) {
+          const heightDiff = rect.height - lastDivHeightRef.current;
+          lastDivHeightRef.current = rect.height;
+          
+          // Adjust character position if on bottom side (indices 2 and 3)
+          if (currentPathIndex === 2 || currentPathIndex === 3) {
+            setPosition(prev => ({ x: prev.x, y: prev.y + heightDiff }));
+          }
+        }
+        
         setPath(newPath);
         if (currentPathIndex >= newPath.length) {
           setCurrentPathIndex(0);
@@ -120,7 +159,7 @@ const CharacterAnimation: React.FC<CharacterAnimationProps> = ({
       initCharacter();
     }
 
-    const handleResizeAndScroll = () => {
+    const handleResize = () => {
       const newPath = generatePath();
       setPath(newPath);
       if (currentPathIndex >= newPath.length) {
@@ -128,18 +167,16 @@ const CharacterAnimation: React.FC<CharacterAnimationProps> = ({
       }
     };
 
-    window.addEventListener('resize', handleResizeAndScroll);
-    window.addEventListener('scroll', handleResizeAndScroll);
+    window.addEventListener('resize', handleResize);
 
     return () => {
-      window.removeEventListener('resize', handleResizeAndScroll);
-      window.removeEventListener('scroll', handleResizeAndScroll);
+      window.removeEventListener('resize', handleResize);
     };
   }, [addItemRef, characterSize.width, characterSize.height, isInitialized]);
 
   useEffect(() => {
     // Pause movement if loading, hovered, or kicking, but keep the direction
-    if (isLoading || !isInitialized || path.length === 0 || isHovered || isKicking) {
+    if (isLoading || !isInitialized || path.length === 0 || isHovered || attack || isBreathing || isGettingUp) {
       return;
     }
 
@@ -192,56 +229,103 @@ const CharacterAnimation: React.FC<CharacterAnimationProps> = ({
 
     const interval = setInterval(moveCharacter, 100);
     return () => clearInterval(interval);
-  }, [isLoading, isHovered, isKicking, position, currentPathIndex, path, isInitialized, characterSize.width, characterSize.height, direction]);
+  }, [isLoading, isHovered, attack, isBreathing, position, currentPathIndex, path, isInitialized, characterSize.width, characterSize.height, direction, isGettingUp]);
 
   const handleAction = () => {
-    if (isLoading || isKicking) return;
+    if (isLoading || attack || isBreathing) return;
 
-    setIsKicking(true);
-    if (kickTimeoutRef.current) {
-      clearTimeout(kickTimeoutRef.current);
+    const attacks: ('kick' | 'uppercut' | 'sweepkick')[] = ['kick', 'uppercut', 'sweepkick'];
+    const lastAttackIndex = attacks.indexOf(lastAttackRef.current);
+    const newAttack = attacks[(lastAttackIndex + 1) % attacks.length];
+    lastAttackRef.current = newAttack;
+    setAttack(newAttack);
+    setAnimationKey(prev => prev + 1);
+
+    if (actionTimeoutRef.current) {
+      clearTimeout(actionTimeoutRef.current);
     }
-    kickTimeoutRef.current = window.setTimeout(() => {
-      setIsKicking(false);
-      kickTimeoutRef.current = null;
-    }, 500);
+    
+    const attackDuration = ANIMATION_DURATIONS[newAttack];
+
+    actionTimeoutRef.current = window.setTimeout(() => {
+      setAttack(null);
+      setIsBreathing(true);
+
+      actionTimeoutRef.current = window.setTimeout(() => {
+        setIsBreathing(false);
+        actionTimeoutRef.current = null;
+      }, 1000); // 1 second of breathing
+
+    }, attackDuration);
   };
 
   useEffect(() => {
     return () => {
-      if (kickTimeoutRef.current) {
-        clearTimeout(kickTimeoutRef.current);
+      if (actionTimeoutRef.current) {
+        clearTimeout(actionTimeoutRef.current);
       }
     };
   }, []);
 
+  // Monitor div height changes
+  useEffect(() => {
+    if (!isInitialized || !addItemRef.current) return;
+
+    const checkHeightChange = () => {
+      const rect = getDocumentRelativeCoords(addItemRef.current);
+      if (!rect) return;
+
+      if (lastDivHeightRef.current !== rect.height) {
+        const heightDiff = rect.height - lastDivHeightRef.current;
+        lastDivHeightRef.current = rect.height;
+
+        // Update path with new dimensions
+        const newPath = generatePath();
+        setPath(newPath);
+
+        // Adjust character position if on bottom side (indices 2 and 3)
+        if (currentPathIndex === 2 || currentPathIndex === 3) {
+          setPosition(prev => ({ x: prev.x, y: prev.y + heightDiff }));
+        }
+      }
+    };
+
+    const interval = setInterval(checkHeightChange, 200);
+    return () => clearInterval(interval);
+  }, [isInitialized, currentPathIndex]);
+
   // Determine which GIF to show
   const getCurrentGif = () => {
+    if (isGettingUp) return GIF_PATHS.getup;
     if (isLoading) return GIF_PATHS.idle;
-    if (isKicking) return GIF_PATHS.kick;
+    if (isBreathing) return GIF_PATHS.breathing;
+    if (attack === 'kick') return GIF_PATHS.kick;
+    if (attack === 'uppercut') return GIF_PATHS.uppercut;
+    if (attack === 'sweepkick') return GIF_PATHS.sweepkick;
     if (isHovered) return GIF_PATHS.idle;
     return GIF_PATHS[direction];
   };
 
   return (
     <div
-      className="fixed z-50 w-16 h-16 lg:w-20 lg:h-20" // Responsive sizing
+      className="absolute z-50 w-16 h-16 lg:w-20 lg:h-20"
       style={{
-        left: position.x - window.scrollX,
-        top: position.y - window.scrollY,
-        pointerEvents: 'auto',
-        transform: 'translateZ(0)',
-        cursor: 'pointer',
+        left: position.x,
+        top: position.y,
+        pointerEvents: isBreathing ? 'none' : 'auto',
+        cursor: isBreathing ? 'default' : 'pointer',
       }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onClick={handleAction}
       onTouchStart={(e) => {
         e.preventDefault();
+        setIsHovered(false);
         handleAction();
       }}
     >
       <img
+        key={animationKey}
         src={getCurrentGif()}
         alt="Jocelyn's character animation"
         className="w-full h-full object-contain"

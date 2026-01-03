@@ -5,8 +5,7 @@ export interface Metadata {
   url: string;
 }
 
-// Reuse fetch with timeout from search.ts or implement here
-const fetchWithTimeout = async (url: string, timeout = 5000): Promise<Response> => {
+const fetchWithTimeout = async (url: string, timeout = 8000): Promise<Response> => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
   
@@ -20,46 +19,122 @@ const fetchWithTimeout = async (url: string, timeout = 5000): Promise<Response> 
   }
 };
 
-export const fetchMetadata = async (url: string): Promise<Metadata> => {
-  let urlToFetch = url;
-  if (!/^https?:\/\//i.test(url)) {
-    urlToFetch = 'https://' + url;
-  }
+// Extract price from text
+const extractPriceFromText = (text: string): number => {
+  const pricePatterns = [
+    /\$\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/,
+    /RM\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/i,
+    /(\d+(?:,\d{3})*(?:\.\d{2})?)\s*(?:USD|MYR|dollars?)/i,
+    /price[:\s]+\$?\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/i
+  ];
 
-  // Simplified API call - only request essential data
-  const apiUrl = `https://api.microlink.io/?url=${encodeURIComponent(urlToFetch)}&data.jsonld.selector=script[type="application/ld+json"]&data.jsonld.attr=text&data.ogPrice.selector=meta[property="product:price:amount"]&data.ogPrice.attr=content`;
-  
-  const response = await fetchWithTimeout(apiUrl, 5000); // 5 second timeout
-  if (!response.ok) throw new Error('Failed to fetch metadata');
-  
-  const responseData = await response.json();
-  const { data } = responseData;
-  
-  const title = data?.title || '';
-  const image = data?.image?.url || '';
-  let price = 0;
-  
-  // Fast price extraction - prioritize most reliable sources
-  if (data.jsonld) {
-    price = extractPriceFromJsonLd(data.jsonld);
+  for (const pattern of pricePatterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) {
+      const price = parseFloat(match[1].replace(/,/g, ''));
+      if (price > 0) return price;
+    }
   }
-  
-  if (price === 0 && data.ogPrice) {
-    price = parsePrice(data.ogPrice);
-  }
-
-  return {
-    title,
-    image,
-    price: (isNaN(price) || price <= 0) ? 0 : price,
-    url: urlToFetch
-  };
+  return 0;
 };
 
-// Optimized JSON-LD parser
+// Clean title - remove site name and common suffixes
+const cleanTitle = (title: string): string => {
+  return title
+    .replace(/\s*[-|:]\s*[^-|:]+$/, '') // Remove " - Site Name" or " | Site Name"
+    .trim();
+};
+
+// Main export function - direct scraping only
+export const fetchMetadata = async (url: string): Promise<Metadata> => {
+  let urlToFetch = url.trim();
+  
+  if (!/^https?:\/\//i.test(urlToFetch)) {
+    urlToFetch = 'https://' + urlToFetch;
+  }
+
+  try {
+    new URL(urlToFetch);
+  } catch {
+    throw new Error('Invalid URL format');
+  }
+
+  console.log('🔍 Fetching metadata for:', urlToFetch);
+
+  try {
+    // Use a CORS proxy to fetch the page
+    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(urlToFetch)}`;
+    
+    const response = await fetchWithTimeout(proxyUrl, 10000);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch page (status ${response.status})`);
+    }
+    
+    const html = await response.text();
+    
+    // Parse title from HTML
+    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    const title = titleMatch?.[1]?.trim() || '';
+    
+    // Parse OG image
+    const ogImageMatch = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i);
+    const image = ogImageMatch?.[1] || '';
+    
+    // Parse price from meta tags or structured data
+    let price = 0;
+    
+    // Try OG price
+    const ogPriceMatch = html.match(/<meta[^>]*property=["']product:price:amount["'][^>]*content=["']([^"']+)["']/i);
+    if (ogPriceMatch?.[1]) {
+      price = parseFloat(ogPriceMatch[1]);
+    }
+    
+    // Try JSON-LD
+    if (price === 0) {
+      const jsonLdMatch = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([^<]+)<\/script>/gi);
+      if (jsonLdMatch) {
+        for (const script of jsonLdMatch) {
+          const jsonMatch = script.match(/>([^<]+)</);
+          if (jsonMatch?.[1]) {
+            try {
+              const data = JSON.parse(jsonMatch[1]);
+              price = extractPriceFromJsonLd(data);
+              if (price > 0) break;
+            } catch {}
+          }
+        }
+      }
+    }
+    
+    // Fallback: search for price in HTML
+    if (price === 0) {
+      price = extractPriceFromText(html);
+    }
+    
+    if (!title) {
+      throw new Error('Could not extract title from page');
+    }
+    
+    const result = {
+      title: cleanTitle(title),
+      image,
+      price,
+      url: urlToFetch
+    };
+    
+    console.log('✅ Result:', result);
+    return result;
+  } catch (error) {
+    console.error('❌ Direct scrape failed:', error);
+    throw new Error('Could not fetch item details from this URL');
+  }
+};
+
+// Helper: Extract price from JSON-LD
 function extractPriceFromJsonLd(jsonld: any): number {
   try {
-    let content = jsonld.text || jsonld;
+    let content = jsonld;
+    
     if (typeof content === 'string') {
       content = JSON.parse(content);
     }
@@ -67,40 +142,60 @@ function extractPriceFromJsonLd(jsonld: any): number {
     const items = Array.isArray(content) ? content : [content];
     
     for (const item of items) {
+      if (!item) continue;
+
       if (item['@graph']) {
-        const graphPrice = extractPriceFromJsonLd({ text: item['@graph'] });
+        const graphPrice = extractPriceFromJsonLd(item['@graph']);
         if (graphPrice > 0) return graphPrice;
       }
 
       const types = Array.isArray(item['@type']) ? item['@type'] : [item['@type']];
-      const isProduct = types.some((t: string) => t?.toLowerCase().includes('product'));
+      const isProduct = types.some((t: string) => 
+        t && typeof t === 'string' && t.toLowerCase().includes('product')
+      );
       
       if (isProduct && item.offers) {
         const offers = Array.isArray(item.offers) ? item.offers : [item.offers];
         
         for (const offer of offers) {
-          const priceValue = offer.price || offer.lowPrice;
-          if (priceValue) {
+          if (!offer) continue;
+          
+          const priceValue = offer.price || offer.lowPrice || offer.highPrice;
+          if (priceValue != null) {
             const parsed = parsePrice(priceValue);
             if (parsed > 0) return parsed;
           }
         }
       }
+
+      if (isProduct && item.price) {
+        const parsed = parsePrice(item.price);
+        if (parsed > 0) return parsed;
+      }
     }
-  } catch {
-    // Silently fail
+  } catch (e) {
+    console.warn('JSON-LD parsing error:', e);
   }
   return 0;
 }
 
-// Fast price parser
+// Helper: Parse price string/number
 function parsePrice(priceStr: string | number): number {
-  if (typeof priceStr === 'number') return priceStr;
+  if (typeof priceStr === 'number') {
+    return priceStr > 0 ? priceStr : 0;
+  }
   
-  const cleaned = String(priceStr).replace(/[^\d,.]/g, '');
+  if (!priceStr) return 0;
   
-  // Handle decimal separators
+  const cleaned = String(priceStr)
+    .replace(/[$£€¥₹RM]/gi, '')
+    .replace(/\s/g, '')
+    .trim();
+  
+  if (!cleaned) return 0;
+  
   let normalized = cleaned;
+  
   if (cleaned.includes(',') && cleaned.includes('.')) {
     normalized = cleaned.lastIndexOf(',') > cleaned.lastIndexOf('.')
       ? cleaned.replace(/\./g, '').replace(',', '.')

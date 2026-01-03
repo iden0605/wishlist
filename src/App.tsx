@@ -1,71 +1,128 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import PasswordGate from '@/components/PasswordGate';
 import AddItem from '@/components/AddItem';
 import ItemList from '@/components/ItemList';
 import FilterBar from '@/components/FilterBar';
 import CharacterAnimation from '@/components/CharacterAnimation';
 import { useItems, type SortByType } from '@/hooks/useItems'; // Import useItems
 
-const SESSION_KEY = 'jocelyn-wishlist-auth';
-
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isUnlocked, setIsUnlocked] = useState(false);
+  const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const unlockTimestamp = localStorage.getItem('unlockTimestamp');
+    if (unlockTimestamp) {
+      const thirtyMinutes = 30 * 60 * 1000;
+      if (Date.now() - parseInt(unlockTimestamp, 10) < thirtyMinutes) {
+        setIsUnlocked(true);
+      } else {
+        localStorage.removeItem('unlockTimestamp');
+      }
+    }
+  }, []);
+
   const [sortBy, setSortBy] = useState<SortByType>({ field: 'createdAt', direction: 'desc' });
   const [isAddItemLoading, setIsAddItemLoading] = useState(false);
+  const [showImages, setShowImages] = useState(true);
 
-  // Ref for the target AddItem div
   const addItemRef = useRef<HTMLDivElement>(null);
 
-  const { loading: isItemsLoading } = useItems(sortBy); // Use the loading state from useItems
+  const { loading: isItemsLoading } = useItems(sortBy);
 
-  // Combine all loading states
   const isGlobalLoading = isItemsLoading || isAddItemLoading;
 
   const handleSortChange = (sortByValue: SortByType) => {
     setSortBy(sortByValue);
   };
 
-  useEffect(() => {
-    const hasSession = localStorage.getItem(SESSION_KEY);
-    if (hasSession) {
-      setIsAuthenticated(true);
-    }
-  }, []);
-
-  const handleLogin = () => {
-    localStorage.setItem(SESSION_KEY, 'true');
-    setIsAuthenticated(true);
+  const handleShowImagesChange = (show: boolean) => {
+    setShowImages(show);
   };
 
-  // Callback for AddItem loading state
+  const handleUnlock = () => {
+    if (password === import.meta.env.VITE_APP_PASSWORD) {
+      setIsUnlocked(true);
+      localStorage.setItem('unlockTimestamp', Date.now().toString());
+      setShowPasswordPrompt(false);
+      setError('');
+      setPassword('');
+    } else {
+      setError('Incorrect password. Please try again.');
+    }
+  };
+
+  const promptForPassword = () => {
+    setShowPasswordPrompt(true);
+  };
+
   const handleAddItemLoadingChange = useCallback((isLoading: boolean) => {
     setIsAddItemLoading(isLoading);
   }, []);
 
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-stone-100 p-4">
-        <div className="bg-white p-10 rounded-3xl shadow-xl border-4 border-stone-200">
-          <PasswordGate onLogin={handleLogin} />
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="container mx-auto p-4 md:p-8 bg-blue-100 rounded-3xl shadow-xl border-4 border-blue-300">
+    <div className="container mx-auto p-4 md:p-8 bg-blue-100 rounded-3xl shadow-xl border-4 border-blue-300 relative">
+      {!isUnlocked && (
+        <button
+          onClick={promptForPassword}
+          className="absolute top-4 right-4 bg-blue-300 hover:bg-blue-400 text-white font-semibold py-2 px-4 rounded-full shadow-lg transition-all duration-300 transform hover:scale-105 z-20"
+        >
+          Unlock Editing 🔓
+        </button>
+      )}
       <h1 className="text-4xl md:text-5xl font-semibold text-center my-6 md:my-8 text-stone-700 text-shadow-md">Jocelyn's Wishlist ✨</h1>
       <CharacterAnimation
         isLoading={isGlobalLoading}
         addItemRef={addItemRef as React.RefObject<HTMLDivElement>}
       />
       <div ref={addItemRef} className="mb-8 md:mb-12 p-4 md:p-6 bg-white rounded-2xl shadow-md border-2 border-stone-200">
-        <AddItem onLoadingChange={handleAddItemLoadingChange} />
+        <AddItem onLoadingChange={handleAddItemLoadingChange} isUnlocked={isUnlocked} promptForPassword={promptForPassword} />
       </div>
       <FilterBar
         onSortChange={handleSortChange}
+        onShowImagesChange={handleShowImagesChange}
+        showImages={showImages}
       />
-      <ItemList sortBy={sortBy} />
+      <ItemList sortBy={sortBy} isUnlocked={isUnlocked} promptForPassword={promptForPassword} showImages={showImages} />
+
+      {showPasswordPrompt && (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-6 sm:p-10 rounded-3xl shadow-xl max-w-sm w-full border-4 border-stone-200 transform scale-95 animate-pop-in">
+            <h2 className="text-2xl sm:text-3xl font-semibold text-center text-blue-700 mb-3 sm:mb-4 text-shadow-md">Unlock Editing</h2>
+            <p className="text-stone-700 text-center mb-4 sm:mb-6 text-base sm:text-lg">Enter the password to make changes.</p>
+            <div className="mb-4 sm:mb-6">
+              <label htmlFor="password" className="block text-stone-700 text-sm sm:text-md font-medium mb-1 sm:mb-2 text-shadow-sm">
+                Secret Password
+              </label>
+              <input
+                type="password"
+                id="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && handleUnlock()}
+                className="p-3 sm:p-4 rounded-xl border-2 border-stone-300 w-full focus:outline-none focus:ring-4 focus:ring-blue-300 shadow-md text-stone-700 placeholder-stone-400 text-base sm:text-lg"
+                placeholder="Shhh... it's a secret!"
+              />
+            </div>
+            {error && <p className="text-red-700 font-semibold text-center mb-3 sm:mb-4 bg-red-200 p-2 sm:p-3 rounded-lg border-2 border-red-500 animate-bounce animate-wiggle text-shadow-sm text-sm">{error}</p>}
+            <div className="flex items-center justify-around">
+              <button
+                onClick={() => setShowPasswordPrompt(false)}
+                className="bg-stone-200 hover:bg-stone-300 text-stone-700 font-semibold py-2 sm:py-3 px-6 sm:px-8 rounded-full shadow-lg transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-stone-300 text-base sm:text-lg text-shadow-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUnlock}
+                className="bg-blue-300 hover:bg-blue-400 text-white font-semibold py-2 sm:py-3 px-6 sm:px-8 rounded-full shadow-lg transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-300 text-base sm:text-lg text-shadow-sm"
+              >
+                Unlock 🔑
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

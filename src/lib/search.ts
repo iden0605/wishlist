@@ -52,12 +52,28 @@ const isProductLink = (item: any): boolean => {
 };
 
 // Fetch with timeout to prevent hanging requests
-const fetchWithTimeout = async (url: string, timeout = 8000): Promise<Response> => {
+const anySignal = (signals: AbortSignal[]): AbortSignal => {
+  const controller = new AbortController();
+  for (const signal of signals) {
+    if (signal.aborted) {
+      controller.abort();
+      return controller.signal;
+    }
+    signal.addEventListener('abort', () => controller.abort(), {
+      once: true,
+    });
+  }
+  return controller.signal;
+};
+
+const fetchWithTimeout = async (url: string, timeout = 8000, signal?: AbortSignal): Promise<Response> => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
-  
+
+  const abortSignal = signal ? anySignal([controller.signal, signal]) : controller.signal;
+
   try {
-    const response = await fetch(url, { signal: controller.signal });
+    const response = await fetch(url, { signal: abortSignal });
     clearTimeout(timeoutId);
     return response;
   } catch (error) {
@@ -85,8 +101,23 @@ const extractPriceFromText = (text: string): number => {
 
 export const searchItems = async (
   query: string,
-  onProgress?: (result: SearchResult) => void
+  onProgress?: (result: SearchResult) => void,
+  signal?: AbortSignal
 ): Promise<SearchResult[]> => {
+  // Check if the query is a URL
+  try {
+    const url = new URL(query);
+    if (url.protocol === 'http:' || url.protocol === 'https:') {
+      const metadata = await fetchMetadata(query);
+      return [{
+        ...metadata,
+        source: url.hostname.replace('www.', ''),
+      }];
+    }
+  } catch (e) {
+    // Not a URL, proceed with search
+  }
+  
   if (!GOOGLE_API_KEY || !GOOGLE_SEARCH_ENGINE_ID) {
     throw new Error('Google API credentials not configured.');
   }
@@ -95,7 +126,7 @@ export const searchItems = async (
     // Step 1: Fetch search results (reduced to 8 for speed)
     const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_API_KEY}&cx=${GOOGLE_SEARCH_ENGINE_ID}&q=${encodeURIComponent(query + ' buy price')}&num=8`;
     
-    const response = await fetchWithTimeout(searchUrl);
+    const response = await fetchWithTimeout(searchUrl, 8000, signal);
     if (!response.ok) {
       throw new Error(`Search API returned ${response.status}`);
     }

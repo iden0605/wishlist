@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { fetchMetadata } from '@/lib/metadata';
@@ -6,9 +6,11 @@ import { searchItems, type SearchResult } from '@/lib/search';
 
 interface AddItemProps {
   onLoadingChange: (isLoading: boolean) => void;
+  isUnlocked: boolean;
+  promptForPassword: () => void;
 }
 
-const AddItem: React.FC<AddItemProps> = ({ onLoadingChange }) => {
+const AddItem: React.FC<AddItemProps> = ({ onLoadingChange, isUnlocked, promptForPassword }) => {
   const [activeTab, setActiveTab] = useState<'search' | 'link'>('search');
   
   // Search state
@@ -16,6 +18,7 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange }) => {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [selectedResult, setSelectedResult] = useState<SearchResult | null>(null);
+  const searchAbortController = useRef<AbortController | null>(null);
 
   // Link state
   const [link, setLink] = useState('');
@@ -46,20 +49,35 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange }) => {
     setError('');
   };
 
+  const handleClearSearch = () => {
+    setSearchResults([]);
+    setError('');
+  };
+
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
-    
+
+    searchAbortController.current = new AbortController();
+    const signal = searchAbortController.current.signal;
+
     setSearching(true);
     setSearchResults([]);
     setError('');
-    
-    const results = await searchItems(searchQuery);
-    if (results.length === 0) {
-      setError('No results found. Try a different term or use the "Add Link" tab.');
+
+    try {
+      const results = await searchItems(searchQuery, undefined, signal);
+      if (results.length === 0) {
+        setError('No results found. Try a different term or use the "Add Link" tab.');
+      }
+      setSearchResults(results);
+    } catch (error) {
+      if ((error as Error).name !== 'AbortError') {
+        setError('An unexpected error occurred during the search.');
+      }
+    } finally {
+      setSearching(false);
     }
-    setSearchResults(results);
-    setSearching(false);
   };
 
   const handleSelectResult = (result: SearchResult) => {
@@ -72,6 +90,10 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange }) => {
 
   const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isUnlocked) {
+      promptForPassword();
+      return;
+    }
     if (manualTitle.trim() === '') {
       setError('Please provide a title.');
       return;
@@ -96,6 +118,10 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange }) => {
   
   const handleLinkSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isUnlocked) {
+      promptForPassword();
+      return;
+    }
     if (link.trim() === '') {
       setError('Please provide a link.');
       return;
@@ -106,26 +132,24 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange }) => {
 
     try {
       const metadata = await fetchMetadata(link);
-      
-      if (!metadata.title) {
-        setShowManualFields(true);
-        setError('Could not automatically fetch item details. Please enter them manually.');
-        setManualTitle(''); // Clear incase of previous
-        setManualImage('');
-        setManualPrice('');
-        return;
-      }
 
-      await addDoc(collection(db, 'items'), {
-        title: metadata.title,
-        image: metadata.image,
-        price: metadata.price,
-        link: metadata.url,
-        createdAt: serverTimestamp(),
-      });
-      resetForm();
+      // Pre-fill form with fetched data
+      setManualTitle(metadata.title || '');
+      setManualImage(metadata.image || '');
+      setManualPrice(metadata.price ? metadata.price.toString() : '');
+
+      // Show the manual form for confirmation/editing
+      setShowManualFields(true);
+
+      if (!metadata.title) {
+        setError('Could not fetch a title. Please enter item details manually.');
+      }
+      
     } catch (err) {
       setShowManualFields(true);
+      setManualTitle(''); // Clear fields on error
+      setManualImage('');
+      setManualPrice('');
       setError('Could not fetch item details. Please enter them manually.');
     } finally {
       setLoading(false);
@@ -133,7 +157,7 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange }) => {
   };
 
   return (
-    <div className="p-4 sm:p-8 bg-white rounded-3xl shadow-xl border-4 border-blue-300 transform hover:scale-105 transition-transform duration-300">
+    <div className="p-4 sm:p-8 bg-white rounded-3xl shadow-xl border-4 border-blue-300 transform hover:scale-105 transition-transform duration-300 overflow-hidden">
       <div className="flex flex-col sm:flex-row mb-4 sm:mb-6 rounded-t-2xl overflow-hidden shadow-inner animate-pop-in border-b-4 border-stone-200">
         <button
           className={`flex-1 py-2 sm:py-3 text-center text-lg sm:text-xl font-medium text-shadow-sm transition-all duration-300 ${activeTab === 'search' ? 'bg-blue-300 text-white shadow-xl' : 'bg-white text-stone-700 hover:bg-blue-100 hover:text-blue-700'}`}
@@ -168,13 +192,35 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange }) => {
                 >
                   {searching ? 'Searching...' : 'Search!'}
                 </button>
+                {searching && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      searchAbortController.current?.abort();
+                      setSearching(false);
+                      setSearchResults([]);
+                    }}
+                    className="bg-red-400 hover:bg-red-500 text-white font-medium py-2 sm:py-3 px-6 sm:px-8 rounded-full shadow-xl transition-all duration-300 transform hover:scale-105 text-shadow-sm"
+                  >
+                    Cancel
+                  </button>
+                )}
               </div>
             </form>
           ) : null}
 
           {/* Search Results Grid */}
-          {!selectedResult && searchResults.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8 animate-pop-in">
+          <div className={`transition-all duration-1000 ease-in-out overflow-hidden ${!selectedResult && searchResults.length > 0 ? 'max-h-[1000px] mb-6 sm:mb-8' : 'max-h-0'}`}>
+            <div className="flex justify-end mb-4">
+              <button
+                type="button"
+                onClick={handleClearSearch}
+                className="bg-stone-200 hover:bg-stone-300 text-stone-700 font-semibold py-2 px-4 rounded-full shadow-lg transition-all duration-300 transform hover:scale-105 text-sm"
+              >
+                Clear Results 🧹
+              </button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
               {searchResults.map((result, idx) => (
                 <div
                   key={idx}
@@ -183,7 +229,7 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange }) => {
                   onClick={() => handleSelectResult(result)}
                 >
                   <img
-                    src={result.image || 'https://via.placeholder.com/150/E0F2F7/4A4A4A?text=No+Image'}
+                    src={result.image || 'https://placeholder.com/150/E0F2F7/4A4A4A?text=No+Image'}
                     alt={result.title}
                     className="w-full h-28 sm:h-32 object-cover rounded-lg mb-2 sm:mb-3 shadow-sm border border-stone-200"
                   />
@@ -197,53 +243,53 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange }) => {
                 </div>
               ))}
             </div>
-          )}
+          </div>
 
           {/* Selected Item Confirmation / Edit */}
-          {selectedResult && (
-             <form onSubmit={handleManualSubmit} className="animate-pop-in">
-               <div className="mb-4 sm:mb-6 p-4 sm:p-6 bg-blue-100 rounded-2xl shadow-inner flex flex-col sm:flex-row items-center gap-3 sm:gap-4 border-2 border-stone-200">
-                 <img src={manualImage || 'https://via.placeholder.com/100/E0F2F7/4A4A4A?text=Item'} className="w-16 h-16 sm:w-20 sm:h-20 object-cover rounded-xl shadow-md border border-blue-200" />
-                 <div className="flex-1 text-center sm:text-left">
-                   <h3 className="font-extrabold text-blue-700 text-lg sm:text-xl text-shadow-sm">Adding this treasure!</h3>
-                   <p className="text-xs sm:text-sm text-stone-700 mb-2 sm:mb-3">Feel free to sprinkle some magic on the details below.</p>
-                   <button
-                     type="button"
-                     onClick={() => setSelectedResult(null)}
-                     className="text-xs sm:text-sm text-blue-500 hover:underline font-semibold text-shadow-sm"
-                   >
-                     Nah, I'll find another...
-                   </button>
-                 </div>
-               </div>
+          <div className={`transition-all duration-1000 ease-in-out overflow-hidden ${selectedResult ? 'max-h-[1000px]' : 'max-h-0'}`}>
+            <form onSubmit={handleManualSubmit}>
+              <div className="mb-4 sm:mb-6 p-4 sm:p-6 bg-blue-100 rounded-2xl shadow-inner flex flex-col sm:flex-row items-center gap-3 sm:gap-4 border-2 border-stone-200">
+                <img src={manualImage || 'https://placeholder.com/100/E0F2F7/4A4A4A?text=Item'} className="w-16 h-16 sm:w-20 sm:h-20 object-cover rounded-xl shadow-md border border-blue-200" />
+                <div className="flex-1 text-center sm:text-left">
+                  <h3 className="font-extrabold text-blue-700 text-lg sm:text-xl text-shadow-sm">Adding this treasure!</h3>
+                  <p className="text-xs sm:text-sm text-stone-700 mb-2 sm:mb-3">Feel free to sprinkle some magic on the details below.</p>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedResult(null)}
+                    className="text-xs sm:text-sm text-blue-500 hover:underline font-semibold text-shadow-sm"
+                  >
+                    Nah, I'll find another...
+                  </button>
+                </div>
+              </div>
 
-               <div className="mb-4 sm:mb-5">
-                 <label className="block text-stone-700 text-sm sm:text-md font-bold mb-1 sm:mb-2 text-shadow-sm">Sparkly Title</label>
-                 <input type="text" value={manualTitle} onChange={(e) => setManualTitle(e.target.value)} className="border-2 border-stone-200 rounded-xl w-full p-2 sm:p-3 shadow-md focus:outline-none focus:ring-4 focus:ring-blue-300 text-stone-700 placeholder-stone-400" />
-               </div>
-               
-               <div className="flex flex-col md:flex-row gap-4 sm:gap-5 mb-6 sm:mb-8">
-                 <div className="flex-1">
-                   <label className="block text-stone-700 text-sm sm:text-md font-bold mb-1 sm:mb-2 text-shadow-sm">Dreamy Price</label>
-                   <input type="number" step="0.01" value={manualPrice} onChange={(e) => setManualPrice(e.target.value)} className="border-2 border-stone-200 rounded-xl w-full p-2 sm:p-3 shadow-md focus:outline-none focus:ring-4 focus:ring-blue-300 text-stone-700 placeholder-stone-400" />
-                 </div>
-                 <div className="flex-1">
-                   <label className="block text-stone-700 text-sm sm:text-md font-bold mb-1 sm:mb-2 text-shadow-sm">Enchanting Image URL</label>
-                   <input type="text" value={manualImage} onChange={(e) => setManualImage(e.target.value)} className="border-2 border-stone-200 rounded-xl w-full p-2 sm:p-3 shadow-md focus:outline-none focus:ring-4 focus:ring-blue-300 text-stone-700 placeholder-stone-400" />
-                 </div>
-               </div>
+              <div className="mb-4 sm:mb-5">
+                <label className="block text-stone-700 text-sm sm:text-md font-bold mb-1 sm:mb-2 text-shadow-sm">Sparkly Title</label>
+                <input type="text" value={manualTitle} onChange={(e) => setManualTitle(e.target.value)} className="border-2 border-stone-200 rounded-xl w-full p-2 sm:p-3 shadow-md focus:outline-none focus:ring-4 focus:ring-blue-300 text-stone-700 placeholder-stone-400" />
+              </div>
+              
+              <div className="flex flex-col md:flex-row gap-4 sm:gap-5 mb-6 sm:mb-8">
+                <div className="flex-1">
+                  <label className="block text-stone-700 text-sm sm:text-md font-bold mb-1 sm:mb-2 text-shadow-sm">Dreamy Price</label>
+                  <input type="number" step="0.01" value={manualPrice} onChange={(e) => setManualPrice(e.target.value)} className="border-2 border-stone-200 rounded-xl w-full p-2 sm:p-3 shadow-md focus:outline-none focus:ring-4 focus:ring-blue-300 text-stone-700 placeholder-stone-400" />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-stone-700 text-sm sm:text-md font-bold mb-1 sm:mb-2 text-shadow-sm">Enchanting Image URL</label>
+                  <input type="text" value={manualImage} onChange={(e) => setManualImage(e.target.value)} className="border-2 border-stone-200 rounded-xl w-full p-2 sm:p-3 shadow-md focus:outline-none focus:ring-4 focus:ring-blue-300 text-stone-700 placeholder-stone-400" />
+                </div>
+              </div>
 
-               <button type="submit" disabled={loading} className="w-full bg-blue-300 hover:bg-blue-400 text-white font-extrabold py-3 sm:py-4 px-4 rounded-full shadow-lg transition-all duration-300 transform hover:scale-105 disabled:opacity-60 disabled:cursor-not-allowed text-lg text-shadow-sm">
-                 {loading ? 'Adding magic...' : 'Grant My Wish! ✨'}
-               </button>
-             </form>
-          )}
+              <button type="submit" disabled={loading} className="w-full bg-blue-300 hover:bg-blue-400 text-white font-extrabold py-3 sm:py-4 px-4 rounded-full shadow-lg transition-all duration-300 transform hover:scale-105 disabled:opacity-60 disabled:cursor-not-allowed text-lg text-shadow-sm">
+                {loading ? 'Adding magic...' : 'Grant My Wish! ✨'}
+              </button>
+            </form>
+          </div>
         </>
       ) : (
         /* Link Tab Content */
         <div className="mb-6">
           
-          {!showManualFields ? (
+          <div className={`transition-all duration-1000 ease-in-out overflow-hidden ${!showManualFields ? 'max-h-[1000px]' : 'max-h-0'}`}>
             <form onSubmit={handleLinkSubmit} className="flex flex-col sm:flex-row gap-2">
               <input type="text" id="link" value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://magical-shop.com/sparkle-item" className="flex-1 p-3 sm:p-4 rounded-full border-2 border-stone-300 focus:outline-none focus:ring-4 focus:ring-blue-300 shadow-lg text-stone-700 placeholder-stone-400 text-base sm:text-lg" />
               <button
@@ -254,9 +300,15 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange }) => {
                 {loading ? 'Adding...' : '+ Add'}
               </button>
             </form>
-          ) : (
-            /* Manual Fields Logic */
+          </div>
+          <div className={`transition-all duration-1000 ease-in-out overflow-hidden ${showManualFields ? 'max-h-[1000px]' : 'max-h-0'}`}>
+            {/* Manual Fields Logic */}
             <form onSubmit={handleManualSubmit}>
+              {manualImage && (
+                <div className="mb-4 sm:mb-6 flex justify-center">
+                  <img src={manualImage} alt="Item Preview" className="max-h-40 w-auto object-contain rounded-lg shadow-md border-2 border-stone-200" />
+                </div>
+              )}
               <div className="mb-4 sm:mb-6">
                 <label htmlFor="manualTitle" className="block text-stone-700 text-sm sm:text-md font-medium mb-1 sm:mb-2 text-shadow-sm">Sparkly Title</label>
                 <input type="text" id="manualTitle" value={manualTitle} onChange={(e) => setManualTitle(e.target.value)} placeholder="Enter item title" className="border-2 border-stone-200 rounded-xl w-full p-2 sm:p-3 shadow-md focus:outline-none focus:ring-4 focus:ring-blue-300 text-stone-700 placeholder-stone-400" />
@@ -269,15 +321,30 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange }) => {
                 <label htmlFor="manualPrice" className="block text-stone-700 text-sm sm:text-md font-medium mb-1 sm:mb-2 text-shadow-sm">Dreamy Price (Optional)</label>
                 <input type="number" id="manualPrice" value={manualPrice} onChange={(e) => setManualPrice(e.target.value)} placeholder="0.00" step="0.01" className="border-2 border-stone-200 rounded-xl w-full p-2 sm:p-3 shadow-md focus:outline-none focus:ring-4 focus:ring-blue-300 text-stone-700 placeholder-stone-400" />
               </div>
-              <button type="submit" disabled={loading} className="w-full bg-blue-300 hover:bg-blue-400 text-white font-extrabold py-3 sm:py-4 px-4 rounded-full shadow-lg transition-all duration-300 transform hover:scale-105 disabled:opacity-60 disabled:cursor-not-allowed text-lg text-shadow-sm">
-                {loading ? 'Adding magic...' : 'Grant My Wish! ✨'}
-              </button>
+              <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+                <button
+                  type="button"
+                  onClick={resetForm}
+                  className="w-full bg-stone-200 hover:bg-stone-300 text-stone-700 font-extrabold py-3 sm:py-4 px-4 rounded-full shadow-lg transition-all duration-300 transform hover:scale-105 text-lg text-shadow-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-blue-300 hover:bg-blue-400 text-white font-extrabold py-3 sm:py-4 px-4 rounded-full shadow-lg transition-all duration-300 transform hover:scale-105 disabled:opacity-60 disabled:cursor-not-allowed text-lg text-shadow-sm"
+                >
+                  {loading ? 'Adding magic...' : 'Grant My Wish! ✨'}
+                </button>
+              </div>
             </form>
-          )}
+          </div>
         </div>
       )}
 
-      {error && <p className="text-red-700 font-bold text-center mt-5 bg-red-200 p-3 rounded-lg border-2 border-red-500 animate-bounce animate-wiggle text-shadow-sm">{error}</p>}
+      <div className={`transition-all duration-1000 ease-in-out overflow-hidden ${error ? 'max-h-[200px] mt-5' : 'max-h-0'}`}>
+        <p className="text-red-700 font-bold text-center bg-red-200 p-3 rounded-lg border-2 border-red-500 text-shadow-sm">{error}</p>
+      </div>
     </div>
   );
 };
