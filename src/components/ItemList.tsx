@@ -47,7 +47,11 @@ const ItemList = forwardRef<HTMLDivElement, ItemListProps>(({ sortBy, isUnlocked
     <div> {/* Outer div without ref */}
       <div className="flex justify-end mb-4 items-center">
         {isUnlocked && (
-          <button onClick={() => setShowConfirm(true)} className="bg-blue-300 hover:bg-blue-400 text-white font-semibold py-2 px-4 sm:py-3 sm:px-6 rounded-full shadow-lg transition-all duration-300 transform hover:scale-105 text-shadow-sm text-sm sm:text-base">
+          <button
+            onClick={() => setShowConfirm(true)}
+            className="bg-blue-300 hover:bg-blue-400 text-white font-semibold py-2 px-4 sm:py-3 sm:px-6 rounded-full shadow-lg transition-all duration-300 transform hover:scale-105 text-shadow-sm text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={items.length === 0}
+          >
             Clear All Wishes 🧹
           </button>
         )}
@@ -69,7 +73,7 @@ const ItemList = forwardRef<HTMLDivElement, ItemListProps>(({ sortBy, isUnlocked
                   e.stopPropagation();
                   handleDelete(item.id);
                 }}
-                className="absolute top-2 right-2 w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center bg-white/70 hover:bg-blue-500 text-stone-600 hover:text-white rounded-full shadow-lg opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all duration-300 z-10 backdrop-blur-sm border border-stone-300"
+                className="absolute top-2 right-2 w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center bg-white/70 hover:bg-blue-500 text-stone-600 hover:text-white rounded-full shadow-lg opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all duration-300 z-10 backdrop-blur-sm border border-stone-300"
                 title="Delete item"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 sm:h-6 sm:w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
