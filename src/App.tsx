@@ -13,13 +13,22 @@ function App() {
   const [showSuccessPopup, setShowSuccessPopup] = useState(false);
 
   useEffect(() => {
-    const unlockTimestamp = localStorage.getItem('unlockTimestamp');
-    if (unlockTimestamp) {
-      const thirtyMinutes = 30 * 60 * 1000;
-      if (Date.now() - parseInt(unlockTimestamp, 10) < thirtyMinutes) {
-        setIsUnlocked(true);
-      } else {
-        localStorage.removeItem('unlockTimestamp');
+    const currentCommitSha = import.meta.env.VITE_COMMIT_SHA;
+    const storedCommitSha = localStorage.getItem('commitSha');
+
+    if (currentCommitSha !== storedCommitSha) {
+      localStorage.removeItem('unlockTimestamp');
+      localStorage.setItem('commitSha', currentCommitSha);
+      setIsUnlocked(false);
+    } else {
+      const unlockTimestamp = localStorage.getItem('unlockTimestamp');
+      if (unlockTimestamp) {
+        const thirtyMinutes = 30 * 60 * 1000;
+        if (Date.now() - parseInt(unlockTimestamp, 10) < thirtyMinutes) {
+          setIsUnlocked(true);
+        } else {
+          localStorage.removeItem('unlockTimestamp');
+        }
       }
     }
   }, []);
@@ -99,7 +108,7 @@ function App() {
       <ItemList sortBy={sortBy} isUnlocked={isUnlocked} promptForPassword={promptForPassword} showImages={showImages} />
 
       {showPasswordPrompt && (
-        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white p-6 sm:p-10 rounded-3xl shadow-xl max-w-sm w-full border-4 border-stone-200 transform scale-95 animate-pop-in">
             <h2 className="text-2xl sm:text-3xl font-semibold text-center text-blue-700 mb-3 sm:mb-4 text-shadow-md">Unlock Editing</h2>
             <p className="text-stone-700 text-center mb-4 sm:mb-6 text-base sm:text-lg">Enter the password to make changes.</p>
@@ -137,7 +146,7 @@ function App() {
       )}
 
       {showSuccessPopup && (
-        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white p-6 sm:p-10 rounded-3xl shadow-xl max-w-sm w-full border-4 border-green-400 transform scale-95 animate-pop-in">
             <h2 className="text-2xl sm:text-3xl font-semibold text-center text-green-700 mb-3 sm:mb-4 text-shadow-md">
               Successfully Unlocked!

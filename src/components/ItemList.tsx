@@ -13,6 +13,8 @@ interface ItemListProps {
 const ItemList = forwardRef<HTMLDivElement, ItemListProps>(({ sortBy, isUnlocked, promptForPassword, showImages }, ref) => {
   const { items, loading } = useItems(sortBy);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [showFinalConfirm, setShowFinalConfirm] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<string | null>(null);
 
   const handleDelete = async (id:string) => {
     if (!isUnlocked) {
@@ -23,10 +25,18 @@ const ItemList = forwardRef<HTMLDivElement, ItemListProps>(({ sortBy, isUnlocked
     await deleteDoc(itemDoc);
   };
 
+  const confirmDeleteItem = () => {
+    if (itemToDelete) {
+      handleDelete(itemToDelete);
+      setItemToDelete(null);
+    }
+  };
+
   const handleClearAll = async () => {
     if (!isUnlocked) {
       promptForPassword();
       setShowConfirm(false);
+      setShowFinalConfirm(false);
       return;
     }
     const itemsCollection = collection(db, 'items');
@@ -37,6 +47,7 @@ const ItemList = forwardRef<HTMLDivElement, ItemListProps>(({ sortBy, isUnlocked
     });
     await batch.commit();
     setShowConfirm(false);
+    setShowFinalConfirm(false);
   };
 
   if (loading) {
@@ -66,21 +77,19 @@ const ItemList = forwardRef<HTMLDivElement, ItemListProps>(({ sortBy, isUnlocked
         <div ref={ref} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-8">
           {items.map((item, index) => (
             <div key={item.id} className="bg-white rounded-2xl shadow-xl overflow-hidden transform hover:-translate-y-2 transition-all duration-300 group relative border-2 border-stone-200 animate-pop-in" style={{ animationDelay: `${index * 0.1}s` }}>
-              {isUnlocked && (
               <button
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  handleDelete(item.id);
+                  setItemToDelete(item.id);
                 }}
-                className="absolute top-2 right-2 w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center bg-white/70 hover:bg-blue-500 text-stone-600 hover:text-white rounded-full shadow-lg opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all duration-300 z-10 backdrop-blur-sm border border-stone-300"
+                className="absolute top-2 right-2 w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center bg-white/70 hover:bg-blue-500 text-stone-600 hover:text-white rounded-full shadow-lg transition-all duration-300 z-10 backdrop-blur-sm border border-stone-300 lg:opacity-0 lg:group-hover:opacity-100"
                 title="Delete item"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 sm:h-6 sm:w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
-              )}
               <a href={item.link} target="_blank" rel="noopener noreferrer">
                 {showImages && <img src={item.image || 'https://via.placeholder.com/400x300/E0F2F7/4A4A4A?text=No+Image'} alt={item.title} className="w-full h-40 sm:h-48 object-contain rounded-t-xl" />}
                 <div className="p-3 sm:p-4">
@@ -96,7 +105,7 @@ const ItemList = forwardRef<HTMLDivElement, ItemListProps>(({ sortBy, isUnlocked
       )}
 
       {showConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white p-8 sm:p-10 rounded-3xl shadow-2xl border-4 border-blue-300 text-center max-w-md w-full animate-pop-in">
             <h3 className="text-xl sm:text-2xl font-semibold text-stone-700 mb-4 sm:mb-6 text-shadow-md">Are you sure you want to clear ALL wishes? 🥺</h3>
             <p className="text-sm sm:text-base text-stone-600 mb-6 sm:mb-8">This cannot be undone! All your precious wishes will vanish!</p>
@@ -104,8 +113,45 @@ const ItemList = forwardRef<HTMLDivElement, ItemListProps>(({ sortBy, isUnlocked
               <button onClick={() => setShowConfirm(false)} className="px-5 py-2 sm:px-6 sm:py-3 rounded-full bg-stone-200 text-stone-700 font-medium hover:bg-stone-300 transition-all duration-300 transform hover:scale-105 shadow-md text-shadow-sm text-sm sm:text-base">
                 No, Keep Wishes!
               </button>
-              <button onClick={handleClearAll} className="bg-blue-500 text-white px-5 py-2 sm:px-6 sm:py-3 rounded-full font-medium hover:bg-red-500 transition-all duration-300 transform hover:scale-105 shadow-md text-shadow-sm text-sm sm:text-base">
+              <button onClick={() => {
+                setShowConfirm(false);
+                setShowFinalConfirm(true);
+              }} className="bg-blue-500 text-white px-5 py-2 sm:px-6 sm:py-3 rounded-full font-medium hover:bg-red-500 transition-all duration-300 transform hover:scale-105 shadow-md text-shadow-sm text-sm sm:text-base">
                 Yes, Vanish Them!
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {itemToDelete && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-8 sm:p-10 rounded-3xl shadow-2xl border-4 border-amber-300 text-center max-w-md w-full animate-pop-in">
+            <h3 className="text-xl sm:text-2xl font-semibold text-stone-700 mb-4 sm:mb-6 text-shadow-md">Delete this wish?</h3>
+            <p className="text-sm sm:text-base text-stone-600 mb-6 sm:mb-8">Are you sure you want to remove this item from the list?</p>
+            <div className="flex flex-col sm:flex-row justify-center gap-3 sm:gap-4">
+              <button onClick={() => setItemToDelete(null)} className="px-5 py-2 sm:px-6 sm:py-3 rounded-full bg-stone-200 text-stone-700 font-medium hover:bg-stone-300 transition-all duration-300 transform hover:scale-105 shadow-md text-shadow-sm text-sm sm:text-base">
+                No, Keep It
+              </button>
+              <button onClick={confirmDeleteItem} className="bg-amber-500 text-white px-5 py-2 sm:px-6 sm:py-3 rounded-full font-medium hover:bg-red-500 transition-all duration-300 transform hover:scale-105 shadow-md text-shadow-sm text-sm sm:text-base">
+                Yes, Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showFinalConfirm && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-8 sm:p-10 rounded-3xl shadow-2xl border-4 border-red-400 text-center max-w-md w-full animate-pop-in">
+            <h3 className="text-2xl sm:text-3xl font-semibold text-red-600 mb-4 sm:mb-6 text-shadow-md animate-wiggle">ARE YOU SURE?</h3>
+            <p className="text-sm sm:text-base text-stone-600 mb-6 sm:mb-8">This is your final warning! Deleting all wishes cannot be undone.</p>
+            <div className="flex flex-col sm:flex-row justify-center gap-3 sm:gap-4">
+              <button onClick={() => setShowFinalConfirm(false)} className="px-5 py-2 sm:px-6 sm:py-3 rounded-full bg-stone-200 text-stone-700 font-medium hover:bg-stone-300 transition-all duration-300 transform hover:scale-105 shadow-md text-shadow-sm text-sm sm:text-base">
+                On Second Thought...
+              </button>
+              <button onClick={handleClearAll} className="bg-red-500 text-white px-5 py-2 sm:px-6 sm:py-3 rounded-full font-medium hover:bg-red-700 transition-all duration-300 transform hover:scale-105 shadow-md text-shadow-sm text-sm sm:text-base">
+                CONFIRM DELETION
               </button>
             </div>
           </div>
