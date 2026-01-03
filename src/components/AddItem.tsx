@@ -3,6 +3,7 @@ import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { fetchMetadata } from '@/lib/metadata';
 import { searchItems, type SearchResult } from '@/lib/search';
+import ItemName from './ItemName';
 
 interface AddItemProps {
   onLoadingChange: (isLoading: boolean) => void;
@@ -27,6 +28,7 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange, isUnlocked, promptFo
   const [manualTitle, setManualTitle] = useState('');
   const [manualImage, setManualImage] = useState('');
   const [manualPrice, setManualPrice] = useState('');
+  const [manualCurrency, setManualCurrency] = useState('AUD');
   const [manualRemarks, setManualRemarks] = useState('');
   const [showManualFields, setShowManualFields] = useState(false);
   
@@ -46,6 +48,7 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange, isUnlocked, promptFo
     setManualTitle('');
     setManualImage('');
     setManualPrice('');
+    setManualCurrency('AUD');
     setManualRemarks('');
     setShowManualFields(false);
     setError('');
@@ -68,11 +71,23 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange, isUnlocked, promptFo
     setError('');
 
     try {
-      const results = await searchItems(searchQuery, undefined, signal);
+      const handleProgress = (result: SearchResult) => {
+        setSearchResults(prevResults => {
+            const existingIndex = prevResults.findIndex(r => r.url === result.url);
+            if (existingIndex !== -1) {
+                const updatedResults = [...prevResults];
+                updatedResults[existingIndex] = result;
+                return updatedResults;
+            }
+            return [...prevResults, result];
+        });
+      };
+
+      const results = await searchItems(searchQuery, handleProgress, signal);
+      
       if (results.length === 0) {
         setError('No results found. Try a different term or use the "Add Link" tab.');
       }
-      setSearchResults(results);
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
         setError('An unexpected error occurred during the search.');
@@ -87,7 +102,8 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange, isUnlocked, promptFo
     // Pre-fill manual fields in case user wants to edit
     setManualTitle(result.title);
     setManualImage(result.image);
-    setManualPrice(result.price.toString());
+    setManualPrice(result.price ? result.price.amount.toString() : '0');
+    setManualCurrency(result.price ? result.price.currency : 'AUD');
   };
 
   const handleManualSubmit = async (e: React.FormEvent) => {
@@ -106,7 +122,10 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange, isUnlocked, promptFo
       await addDoc(collection(db, 'items'), {
         title: manualTitle,
         image: manualImage,
-        price: manualPrice ? parseFloat(manualPrice) : 0,
+        price: {
+          amount: manualPrice ? parseFloat(manualPrice) : 0,
+          currency: manualCurrency,
+        },
         link: activeTab === 'search' && selectedResult ? selectedResult.url : link,
         createdAt: serverTimestamp(),
         remarks: manualRemarks,
@@ -140,7 +159,13 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange, isUnlocked, promptFo
       // Pre-fill form with fetched data
       setManualTitle(metadata.title || '');
       setManualImage(metadata.image || '');
-      setManualPrice(metadata.price ? metadata.price.toString() : '');
+      if (metadata.price) {
+        setManualPrice(metadata.price.amount > 0 ? metadata.price.amount.toString() : '');
+        setManualCurrency(metadata.price.currency || 'AUD');
+      } else {
+        setManualPrice('');
+        setManualCurrency('AUD');
+      }
 
       // Show the manual form for confirmation/editing
       setShowManualFields(true);
@@ -154,6 +179,7 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange, isUnlocked, promptFo
       setManualTitle(''); // Clear fields on error
       setManualImage('');
       setManualPrice('');
+      setManualCurrency('AUD');
       setManualRemarks('');
       setError('Could not fetch item details. Please enter them manually.');
     } finally {
@@ -215,38 +241,54 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange, isUnlocked, promptFo
           ) : null}
 
           {/* Search Results Grid */}
-          <div className={`transition-all duration-1000 ease-in-out overflow-hidden ${!selectedResult && searchResults.length > 0 ? 'max-h-[1000px] mb-6 sm:mb-8' : 'max-h-0'}`}>
-            <div className="flex justify-end mb-4">
-              <button
-                type="button"
-                onClick={handleClearSearch}
-                className="bg-stone-200 hover:bg-stone-300 text-stone-700 font-semibold py-2 px-4 rounded-full shadow-lg transition-all duration-300 transform hover:scale-105 text-sm"
-              >
-                Clear Results 🧹
-              </button>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
-              {searchResults.map((result, idx) => (
-                <div
-                  key={idx}
-                  className="border-2 border-blue-200 rounded-2xl p-3 sm:p-4 cursor-pointer hover:shadow-xl transition-all duration-300 transform hover:-translate-y-2 bg-white flex flex-col items-center justify-between animate-pop-in"
-                  style={{ animationDelay: `${idx * 0.05}s` }}
-                  onClick={() => handleSelectResult(result)}
+          <div className={`grid transition-[grid-template-rows] duration-500 ease-in-out ${!selectedResult && searchResults.length > 0 ? 'grid-rows-[1fr] mb-6 sm:mb-8' : 'grid-rows-[0fr]'}`}>
+            <div className="overflow-hidden">
+              <div className="flex justify-end mb-4">
+                <button
+                  type="button"
+                  onClick={handleClearSearch}
+                  className="bg-stone-200 hover:bg-stone-300 text-stone-700 font-semibold py-2 px-4 rounded-full shadow-lg transition-all duration-300 transform hover:scale-105 text-sm"
                 >
-                  <img
-                    src={result.image || 'https://placeholder.com/150/E0F2F7/4A4A4A?text=No+Image'}
-                    alt={result.title}
-                    className="w-full h-28 sm:h-32 object-cover rounded-lg mb-2 sm:mb-3 shadow-sm border border-stone-200"
-                  />
-                  <h4 className="text-sm sm:text-md font-medium text-stone-700 text-center mb-1 sm:mb-2 text-shadow-sm">{result.title}</h4>
-                  <div className="flex justify-between items-center w-full text-center">
-                    <span className="text-blue-400 font-medium text-xs sm:text-base text-shadow-sm">
-                      {result.price ? `$${result.price.toFixed(2)}` : 'N/A'}
-                    </span>
-                    <span className="text-xs text-white bg-blue-300 px-2 sm:px-3 py-0.5 sm:py-1 rounded-full shadow-md text-shadow-sm">{result.source}</span>
+                  Clear Results 🧹
+                </button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
+                {searchResults.map((result, idx) => (
+                  <div
+                    key={idx}
+                    className="border-2 border-blue-200 rounded-2xl p-3 sm:p-4 cursor-pointer hover:shadow-xl transition-all duration-300 transform hover:-translate-y-2 bg-white flex flex-col items-center justify-between animate-pop-in"
+                    style={{ animationDelay: `${idx * 0.05}s` }}
+                    onClick={() => handleSelectResult(result)}
+                  >
+                    <img
+                      src={result.image || 'https://placeholder.com/150/E0F2F7/4A4A4A?text=No+Image'}
+                      alt={result.title}
+                      className="w-full h-28 sm:h-32 object-cover rounded-lg mb-2 sm:mb-3 shadow-sm border border-stone-200"
+                    />
+                    <ItemName name={result.title} className="text-sm sm:text-md font-medium text-stone-700 text-center mb-1 sm:mb-2 text-shadow-sm" />
+                    <div className="flex justify-between items-center w-full text-center md:flex-col md:gap-2">
+                      <span className="text-blue-400 font-medium text-xs sm:text-base text-shadow-sm">
+                        {result.price && result.price.amount > 0 ? `${result.price.currency} $${result.price.amount.toFixed(2)}` : 'N/A'}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-white bg-blue-300 px-2 sm:px-3 py-0.5 sm:py-1 rounded-full shadow-md text-shadow-sm">{result.source}</span>
+                        <a
+                          href={result.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-blue-400 hover:text-blue-600 transition-colors"
+                          title="Visit link in new tab"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                          </svg>
+                        </a>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
 
@@ -278,9 +320,25 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange, isUnlocked, promptFo
                   <label className="block text-stone-700 text-sm sm:text-md font-bold mb-1 sm:mb-2 text-shadow-sm">Dreamy Price</label>
                   <input type="number" step="0.01" value={manualPrice} onChange={(e) => setManualPrice(e.target.value)} className="border-2 border-stone-200 rounded-xl w-full p-2 sm:p-3 shadow-md focus:outline-none focus:ring-4 focus:ring-blue-300 text-stone-700 placeholder-stone-400" />
                 </div>
-                <div className="flex-1">
-                  <label className="block text-stone-700 text-sm sm:text-md font-bold mb-1 sm:mb-2 text-shadow-sm">Enchanting Image URL</label>
-                  <input type="text" value={manualImage} onChange={(e) => setManualImage(e.target.value)} className="border-2 border-stone-200 rounded-xl w-full p-2 sm:p-3 shadow-md focus:outline-none focus:ring-4 focus:ring-blue-300 text-stone-700 placeholder-stone-400" />
+                <div className="w-full md:w-1/3">
+                    <label className="block text-stone-700 text-sm sm:text-md font-bold mb-1 sm:mb-2 text-shadow-sm">Currency</label>
+                    <select
+                        value={manualCurrency}
+                        onChange={(e) => setManualCurrency(e.target.value as any)}
+                        className="border-2 border-stone-200 rounded-xl w-full p-2 sm:p-3 shadow-md focus:outline-none focus:ring-4 focus:ring-blue-300 text-stone-700"
+                    >
+                        <option value="AUD">AUD</option>
+                        <option value="USD">USD</option>
+                        <option value="MYR">MYR</option>
+                        <option value="SGD">SGD</option>
+                        <option value="NZD">NZD</option>
+                        <option value="GBP">GBP</option>
+                        <option value="EUR">EUR</option>
+                        <option value="CAD">CAD</option>
+                        <option value="JPY">JPY</option>
+                        <option value="CNY">CNY</option>
+                        <option value="HKD">HKD</option>
+                    </select>
                 </div>
               </div>
 
@@ -289,9 +347,22 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange, isUnlocked, promptFo
                 <textarea value={manualRemarks} onChange={(e) => setManualRemarks(e.target.value)} placeholder="e.g. For birthdays, special occasions" className="border-2 border-stone-200 rounded-xl w-full p-2 sm:p-3 shadow-md focus:outline-none focus:ring-4 focus:ring-blue-300 text-stone-700 placeholder-stone-400" />
               </div>
 
-              <button type="submit" disabled={loading} className="w-full bg-blue-300 hover:bg-blue-400 text-white font-extrabold py-3 sm:py-4 px-4 rounded-full shadow-lg transition-all duration-300 transform hover:scale-105 disabled:opacity-60 disabled:cursor-not-allowed text-lg text-shadow-sm">
-                {loading ? 'Adding magic...' : 'Grant My Wish! ✨'}
-              </button>
+              <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 sm:justify-center mb-4">
+                <button
+                  type="button"
+                  onClick={() => setSelectedResult(null)}
+                  className="w-full sm:w-auto sm:flex-1 bg-stone-200 hover:bg-stone-300 text-stone-700 font-extrabold py-3 sm:py-4 px-4 rounded-full shadow-lg transition-all duration-300 transform hover:scale-105 text-lg text-shadow-sm max-w-xs"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full sm:w-auto sm:flex-1 bg-blue-300 hover:bg-blue-400 text-white font-extrabold py-3 sm:py-4 px-4 rounded-full shadow-lg transition-all duration-300 transform hover:scale-105 disabled:opacity-60 disabled:cursor-not-allowed text-lg text-shadow-sm max-w-xs"
+                >
+                  {loading ? 'Adding magic...' : 'Grant My Wish! ✨'}
+                </button>
+              </div>
             </form>
           </div>
         </>
@@ -324,18 +395,41 @@ const AddItem: React.FC<AddItemProps> = ({ onLoadingChange, isUnlocked, promptFo
                 <input type="text" id="manualTitle" value={manualTitle} onChange={(e) => setManualTitle(e.target.value)} placeholder="Enter item title" className="border-2 border-stone-200 rounded-xl w-full p-2 sm:p-3 shadow-md focus:outline-none focus:ring-4 focus:ring-blue-300 text-stone-700 placeholder-stone-400" />
               </div>
               <div className="mb-4 sm:mb-6">
-                <label htmlFor="manualImage" className="block text-stone-700 text-sm sm:text-md font-medium mb-1 sm:mb-2 text-shadow-sm">Enchanting Image URL (Optional)</label>
-                <input type="text" id="manualImage" value={manualImage} onChange={(e) => setManualImage(e.target.value)} placeholder="https://magical-shop.com/image.png" className="border-2 border-stone-200 rounded-xl w-full p-2 sm:p-3 shadow-md focus:outline-none focus:ring-4 focus:ring-blue-300 text-stone-700 placeholder-stone-400" />
-              </div>
-              <div className="mb-4 sm:mb-6">
                 <label htmlFor="manualPrice" className="block text-stone-700 text-sm sm:text-md font-medium mb-1 sm:mb-2 text-shadow-sm">Dreamy Price (Optional)</label>
-                <input type="number" id="manualPrice" value={manualPrice} onChange={(e) => setManualPrice(e.target.value)} placeholder="0.00" step="0.01" className="border-2 border-stone-200 rounded-xl w-full p-2 sm:p-3 shadow-md focus:outline-none focus:ring-4 focus:ring-blue-300 text-stone-700 placeholder-stone-400" />
+                <div className="flex gap-4">
+                  <input
+                    type="number"
+                    id="manualPrice"
+                    value={manualPrice}
+                    onChange={(e) => setManualPrice(e.target.value)}
+                    placeholder="0.00"
+                    step="0.01"
+                    className="border-2 border-stone-200 rounded-xl w-2/3 p-2 sm:p-3 shadow-md focus:outline-none focus:ring-4 focus:ring-blue-300 text-stone-700 placeholder-stone-400"
+                  />
+                  <select
+                    value={manualCurrency}
+                    onChange={(e) => setManualCurrency(e.target.value as any)}
+                    className="border-2 border-stone-200 rounded-xl w-1/3 p-2 sm:p-3 shadow-md focus:outline-none focus:ring-4 focus:ring-blue-300 text-stone-700"
+                  >
+                    <option value="AUD">AUD</option>
+                    <option value="USD">USD</option>
+                    <option value="MYR">MYR</option>
+                    <option value="SGD">SGD</option>
+                    <option value="NZD">NZD</option>
+                    <option value="GBP">GBP</option>
+                    <option value="EUR">EUR</option>
+                    <option value="CAD">CAD</option>
+                    <option value="JPY">JPY</option>
+                    <option value="CNY">CNY</option>
+                    <option value="HKD">HKD</option>
+                  </select>
+                </div>
               </div>
               <div className="mb-4 sm:mb-6">
                 <label htmlFor="manualRemarks" className="block text-stone-700 text-sm sm:text-md font-medium mb-1 sm:mb-2 text-shadow-sm">Remarks (Optional)</label>
                 <textarea id="manualRemarks" value={manualRemarks} onChange={(e) => setManualRemarks(e.target.value)} placeholder="e.g. For birthdays, special occasions" className="border-2 border-stone-200 rounded-xl w-full p-2 sm:p-3 shadow-md focus:outline-none focus:ring-4 focus:ring-blue-300 text-stone-700 placeholder-stone-400" />
               </div>
-              <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+              <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mb-4">
                 <button
                   type="button"
                   onClick={resetForm}

@@ -1,7 +1,9 @@
+import { type Price, detectCurrency } from './currency';
+
 export interface Metadata {
   title: string;
   image: string;
-  price: number;
+  price: Price;
   url: string;
 }
 
@@ -20,22 +22,26 @@ const fetchWithTimeout = async (url: string, timeout = 8000): Promise<Response> 
 };
 
 // Extract price from text
-const extractPriceFromText = (text: string): number => {
+// Extract price from text
+const extractPriceFromText = (text: string): Price => {
+  const currency = detectCurrency(text);
+
   const pricePatterns = [
-    /\$\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/,
-    /RM\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/i,
-    /(\d+(?:,\d{3})*(?:\.\d{2})?)\s*(?:USD|MYR|dollars?)/i,
-    /price[:\s]+\$?\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/i
+    /(?:[\$€£¥]|RM|SGD|NZD|CAD|HKD|A\$|AU\$)\s*(\d+(?:[.,]\d{3})*(?:[.,]\d{2})?)/i,
+    /(\d+(?:[.,]\d{3})*(?:[.,]\d{2})?)\s*(?:USD|MYR|AUD|dollars?|SGD|NZD|GBP|EUR|CAD|JPY|CNY|HKD)/i,
+    /price(?: is)?[:\s]+\$?(\d+(?:[.,]\d{3})*(?:[.,]\d{2})?)/i
   ];
 
   for (const pattern of pricePatterns) {
     const match = text.match(pattern);
     if (match?.[1]) {
-      const price = parseFloat(match[1].replace(/,/g, ''));
-      if (price > 0) return price;
+      const amount = parsePriceAmount(match[1]);
+      if (amount > 0) {
+        return { amount, currency: currency !== 'UNKNOWN' ? currency : 'USD' };
+      }
     }
   }
-  return 0;
+  return { amount: 0, currency: 'UNKNOWN' };
 };
 
 // Clean title - remove site name and common suffixes
@@ -81,16 +87,22 @@ export const fetchMetadata = async (url: string): Promise<Metadata> => {
     const image = ogImageMatch?.[1] || '';
     
     // Parse price from meta tags or structured data
-    let price = 0;
+    let price: Price = { amount: 0, currency: 'UNKNOWN' };
     
     // Try OG price
-    const ogPriceMatch = html.match(/<meta[^>]*property=["']product:price:amount["'][^>]*content=["']([^"']+)["']/i);
-    if (ogPriceMatch?.[1]) {
-      price = parseFloat(ogPriceMatch[1]);
+    const ogPriceAmountMatch = html.match(/<meta[^>]*property=["'](?:product:price:amount|og:price:amount)["'][^>]*content=["']([^"']+)["']/i);
+    const ogPriceCurrencyMatch = html.match(/<meta[^>]*property=["'](?:product:price:currency|og:price:currency)["'][^>]*content=["']([^"']+)["']/i);
+
+    if (ogPriceAmountMatch?.[1]) {
+        const amount = parsePriceAmount(ogPriceAmountMatch[1]);
+        if (amount > 0) {
+            const currency = detectCurrency(ogPriceCurrencyMatch?.[1] || 'USD');
+            price = { amount, currency };
+        }
     }
     
     // Try JSON-LD
-    if (price === 0) {
+    if (price.amount === 0) {
       const jsonLdMatch = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([^<]+)<\/script>/gi);
       if (jsonLdMatch) {
         for (const script of jsonLdMatch) {
@@ -98,8 +110,11 @@ export const fetchMetadata = async (url: string): Promise<Metadata> => {
           if (jsonMatch?.[1]) {
             try {
               const data = JSON.parse(jsonMatch[1]);
-              price = extractPriceFromJsonLd(data);
-              if (price > 0) break;
+              const jsonPrice = extractPriceFromJsonLd(data);
+              if (jsonPrice.amount > 0) {
+                price = jsonPrice;
+                break;
+              }
             } catch {}
           }
         }
@@ -107,7 +122,7 @@ export const fetchMetadata = async (url: string): Promise<Metadata> => {
     }
     
     // Fallback: search for price in HTML
-    if (price === 0) {
+    if (price.amount === 0) {
       price = extractPriceFromText(html);
     }
     
@@ -131,7 +146,7 @@ export const fetchMetadata = async (url: string): Promise<Metadata> => {
 };
 
 // Helper: Extract price from JSON-LD
-function extractPriceFromJsonLd(jsonld: any): number {
+function extractPriceFromJsonLd(jsonld: any): Price {
   try {
     let content = jsonld;
     
@@ -146,11 +161,11 @@ function extractPriceFromJsonLd(jsonld: any): number {
 
       if (item['@graph']) {
         const graphPrice = extractPriceFromJsonLd(item['@graph']);
-        if (graphPrice > 0) return graphPrice;
+        if (graphPrice.amount > 0) return graphPrice;
       }
 
       const types = Array.isArray(item['@type']) ? item['@type'] : [item['@type']];
-      const isProduct = types.some((t: string) => 
+      const isProduct = types.some((t: string) =>
         t && typeof t === 'string' && t.toLowerCase().includes('product')
       );
       
@@ -161,51 +176,55 @@ function extractPriceFromJsonLd(jsonld: any): number {
           if (!offer) continue;
           
           const priceValue = offer.price || offer.lowPrice || offer.highPrice;
+          const currency = detectCurrency(offer.priceCurrency || '');
           if (priceValue != null) {
-            const parsed = parsePrice(priceValue);
-            if (parsed > 0) return parsed;
+            const amount = parsePriceAmount(priceValue);
+            if (amount > 0) return { amount, currency };
           }
         }
       }
 
       if (isProduct && item.price) {
-        const parsed = parsePrice(item.price);
-        if (parsed > 0) return parsed;
+        const amount = parsePriceAmount(item.price);
+        if (amount > 0) return { amount, currency: detectCurrency(item.priceCurrency || '') };
       }
     }
   } catch (e) {
     console.warn('JSON-LD parsing error:', e);
   }
-  return 0;
+  return { amount: 0, currency: 'UNKNOWN' };
 }
 
 // Helper: Parse price string/number
-function parsePrice(priceStr: string | number): number {
-  if (typeof priceStr === 'number') {
-    return priceStr > 0 ? priceStr : 0;
-  }
-  
-  if (!priceStr) return 0;
-  
-  const cleaned = String(priceStr)
-    .replace(/[$£€¥₹RM]/gi, '')
-    .replace(/\s/g, '')
-    .trim();
-  
-  if (!cleaned) return 0;
-  
-  let normalized = cleaned;
-  
-  if (cleaned.includes(',') && cleaned.includes('.')) {
-    normalized = cleaned.lastIndexOf(',') > cleaned.lastIndexOf('.')
-      ? cleaned.replace(/\./g, '').replace(',', '.')
-      : cleaned.replace(/,/g, '');
-  } else if (cleaned.includes(',')) {
-    normalized = /,\d{2}$/.test(cleaned)
-      ? cleaned.replace(',', '.')
-      : cleaned.replace(/,/g, '');
-  }
-  
-  const parsed = parseFloat(normalized);
-  return (!isNaN(parsed) && parsed > 0) ? parsed : 0;
+function parsePriceAmount(priceStr: string | number): number {
+    if (typeof priceStr === 'number') {
+        return priceStr > 0 ? priceStr : 0;
+    }
+    
+    if (!priceStr) return 0;
+    
+    // Keep only numbers, dots, and commas for parsing
+    const cleaned = String(priceStr).replace(/[^\d.,]/g, '');
+    
+    if (!cleaned) return 0;
+    
+    let normalized = cleaned;
+    
+    const hasComma = cleaned.includes(',');
+    const hasDot = cleaned.includes('.');
+    
+    // Handle thousand separators (e.g., 1,234.56 or 1.234,56)
+    if (hasComma && hasDot) {
+        normalized = cleaned.lastIndexOf(',') > cleaned.lastIndexOf('.')
+            ? cleaned.replace(/\./g, '').replace(',', '.') // European format: 1.234,56 -> 1234.56
+            : cleaned.replace(/,/g, '');                   // US format: 1,234.56 -> 1234.56
+    } else if (hasComma) {
+        // Handle comma as decimal (e.g., 12,34) or thousand separator (e.g., 1,234)
+        normalized = /,\d{2}$/.test(cleaned)
+            ? cleaned.replace(',', '.') // Decimal: 12,34 -> 12.34
+            : cleaned.replace(/,/g, '');   // Thousand: 1,234 -> 1234
+    }
+    
+    const parsed = parseFloat(normalized);
+    return (!isNaN(parsed) && parsed > 0) ? parsed : 0;
 }

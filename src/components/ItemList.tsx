@@ -3,6 +3,9 @@ import { type Item } from '@/hooks/useItems';
 import { doc, deleteDoc, collection, getDocs, writeBatch, updateDoc } from 'firebase/firestore';
 import { FaPencilAlt, FaHeart } from 'react-icons/fa';
 import { db } from '@/lib/firebase';
+import ItemName from './ItemName';
+import PriceDisplay from './PriceDisplay';
+import CollapsibleRemark from './CollapsibleRemark';
 
 interface ItemListProps {
   items: Item[];
@@ -55,7 +58,10 @@ const ItemList = forwardRef<HTMLDivElement, ItemListProps>(({ items, loading, is
     const formData = new FormData(e.currentTarget);
     const updatedData = {
       title: formData.get('title') as string,
-      price: parseFloat((formData.get('price') as string) || '0'),
+      price: {
+        amount: parseFloat((formData.get('price') as string) || '0'),
+        currency: (formData.get('currency') as string) || 'AUD',
+      },
       remarks: formData.get('remarks') as string,
     };
 
@@ -109,7 +115,7 @@ const ItemList = forwardRef<HTMLDivElement, ItemListProps>(({ items, loading, is
       ) : (
         <div ref={ref} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-8">
           {items.map((item, index) => (
-            <div key={item.id} className="bg-white rounded-2xl shadow-xl overflow-hidden transform hover:-translate-y-2 transition-all duration-300 group relative border-2 border-stone-200 animate-pop-in flex flex-col" style={{ animationDelay: `${index * 0.1}s` }}>
+            <div key={item.id} className="bg-white rounded-2xl shadow-xl transform hover:-translate-y-2 transition-all duration-300 group relative border-2 border-stone-200 animate-pop-in flex flex-col" style={{ animationDelay: `${index * 0.1}s` }}>
               <div className="absolute top-2 right-2 z-10 flex gap-2">
                 <button
                   onClick={() => handleFavoriteToggle(item.id, item.favorite ?? false)}
@@ -129,12 +135,10 @@ const ItemList = forwardRef<HTMLDivElement, ItemListProps>(({ items, loading, is
                 {showImages && <img src={item.image || 'https://via.placeholder.com/400x300/E0F2F7/4A4A4A?text=No+Image'} alt={item.title} className="w-full h-40 sm:h-48 object-contain rounded-t-xl" />}
               </a>
               <div className="p-3 sm:p-4 flex-grow">
-                <h3 className="text-base sm:text-xl font-semibold text-stone-700 truncate text-shadow-sm">{item.title}</h3>
-                <p className="text-blue-400 font-semibold text-md sm:text-lg mt-1 sm:mt-2 text-shadow-sm">
-                  {item.price ? `$${item.price.toFixed(2)}` : 'Price unknown!'}
-                </p>
+                <ItemName name={item.title} lineClamp={1} />
+                <PriceDisplay price={item.price} />
                 {item.remarks && (
-                  <p className="text-sm text-stone-600 mt-2 italic bg-stone-100 p-2 rounded-lg break-words">"{item.remarks}"</p>
+                  <CollapsibleRemark remark={item.remarks} />
                 )}
               </div>
               {isUnlocked && (
@@ -241,9 +245,29 @@ const ItemList = forwardRef<HTMLDivElement, ItemListProps>(({ items, loading, is
                   type="number"
                   step="0.01"
                   name="price"
-                  defaultValue={editingItem.price}
+                  defaultValue={editingItem.price?.amount || 0}
                   className="border-2 border-stone-200 rounded-xl w-full p-3 shadow-md focus:outline-none focus:ring-4 focus:ring-blue-300"
                 />
+              </div>
+              <div className="mb-4">
+                <label className="block text-stone-700 text-sm font-bold mb-2">Currency</label>
+                <select
+                    name="currency"
+                    defaultValue={editingItem.price?.currency || 'AUD'}
+                    className="border-2 border-stone-200 rounded-xl w-full p-3 shadow-md focus:outline-none focus:ring-4 focus:ring-blue-300"
+                >
+                    <option value="AUD">AUD</option>
+                    <option value="USD">USD</option>
+                    <option value="MYR">MYR</option>
+                    <option value="SGD">SGD</option>
+                    <option value="NZD">NZD</option>
+                    <option value="GBP">GBP</option>
+                    <option value="EUR">EUR</option>
+                    <option value="CAD">CAD</option>
+                    <option value="JPY">JPY</option>
+                    <option value="CNY">CNY</option>
+                    <option value="HKD">HKD</option>
+                </select>
               </div>
               <div className="mb-6">
                 <label className="block text-stone-700 text-sm font-bold mb-2">Remarks</label>

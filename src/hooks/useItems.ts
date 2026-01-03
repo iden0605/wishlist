@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { collection, onSnapshot, query, orderBy, limit, where, type OrderByDirection, type QueryConstraint } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { type Price } from '@/lib/currency';
 
 export interface Item {
   id: string;
   title: string;
   image: string;
-  price: number;
+  price: Price;
   link: string;
   remarks?: string;
   favorite?: boolean;

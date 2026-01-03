@@ -2,6 +2,7 @@
 
 import type { Metadata } from './metadata';
 import { fetchMetadata } from './metadata';
+import { type Price, detectCurrency } from './currency';
 
 // metadata.ts - Optimized version
 
@@ -83,20 +84,44 @@ const fetchWithTimeout = async (url: string, timeout = 8000, signal?: AbortSigna
 };
 
 // Extract price with improved patterns
-const extractPriceFromText = (text: string): number => {
-  const pricePatterns = [
-    /\$\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/,
-    /RM\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/i,
-    /(\d+(?:,\d{3})*(?:\.\d{2})?)\s*(?:USD|MYR)/i,
-  ];
-
-  for (const pattern of pricePatterns) {
-    const match = text.match(pattern);
-    if (match?.[1]) {
-      return parseFloat(match[1].replace(/,/g, ''));
+const parsePriceAmount = (priceStr: string | number): number => {
+    if (typeof priceStr === 'number') return priceStr > 0 ? priceStr : 0;
+    if (!priceStr) return 0;
+    const cleaned = String(priceStr).replace(/[^\d.,]/g, '');
+    if (!cleaned) return 0;
+    let normalized = cleaned;
+    const hasComma = cleaned.includes(',');
+    const hasDot = cleaned.includes('.');
+    if (hasComma && hasDot) {
+        normalized = cleaned.lastIndexOf(',') > cleaned.lastIndexOf('.')
+            ? cleaned.replace(/\./g, '').replace(',', '.')
+            : cleaned.replace(/,/g, '');
+    } else if (hasComma) {
+        normalized = /,\d{2}$/.test(cleaned)
+            ? cleaned.replace(',', '.')
+            : cleaned.replace(/,/g, '');
     }
-  }
-  return 0;
+    const parsed = parseFloat(normalized);
+    return !isNaN(parsed) && parsed > 0 ? parsed : 0;
+};
+
+const extractPriceFromText = (text: string): Price => {
+    const currency = detectCurrency(text);
+    const pricePatterns = [
+        /(?:[\$€£¥]|RM|SGD|NZD|CAD|HKD|A\$|AU\$)\s*(\d+(?:[.,]\d{3})*(?:[.,]\d{2})?)/i,
+        /(\d+(?:[.,]\d{3})*(?:[.,]\d{2})?)\s*(?:USD|MYR|AUD|dollars?|SGD|NZD|GBP|EUR|CAD|JPY|CNY|HKD)/i,
+    ];
+
+    for (const pattern of pricePatterns) {
+        const match = text.match(pattern);
+        if (match?.[1]) {
+            const amount = parsePriceAmount(match[1]);
+            if (amount > 0) {
+                return { amount, currency: currency !== 'UNKNOWN' ? currency : 'USD' };
+            }
+        }
+    }
+    return { amount: 0, currency: 'UNKNOWN' };
 };
 
 export const searchItems = async (
@@ -151,14 +176,25 @@ export const searchItems = async (
     const initialResults: SearchResult[] = productItems.map((item: any) => {
       const hostname = new URL(item.link).hostname.replace('www.', '');
       
-      let price = 0;
+      let price: Price = { amount: 0, currency: 'UNKNOWN' };
       let image = '';
       
       // Extract price from Google's data (fast)
-      if (item.pagemap?.offer?.[0]?.price) {
-        price = parseFloat(String(item.pagemap.offer[0].price).replace(/[^\d.]/g, ''));
-      } else if (item.pagemap?.metatags?.[0]?.['product:price:amount']) {
-        price = parseFloat(item.pagemap.metatags[0]['product:price:amount']);
+      const offer = item.pagemap?.offer?.[0];
+      const metatags = item.pagemap?.metatags?.[0];
+
+      if (offer?.price) {
+        const currency = detectCurrency(offer.priceCurrency || offer.price);
+        const amount = parsePriceAmount(String(offer.price));
+        if (amount > 0) {
+          price = { amount, currency };
+        }
+      } else if (metatags?.['product:price:amount']) {
+        const currency = detectCurrency(metatags['product:price:currency'] || '');
+        const amount = parsePriceAmount(metatags['product:price:amount']);
+         if (amount > 0) {
+          price = { amount, currency: currency !== 'UNKNOWN' ? currency : 'USD' };
+        }
       } else {
         // Fallback: extract from snippet
         price = extractPriceFromText(item.snippet || '');
@@ -188,52 +224,45 @@ export const searchItems = async (
     // Step 5: Enhance results in background (parallel, with limits)
     const enhanceResults = async () => {
       // Process only items missing price or image
-      const itemsToEnhance = initialResults.filter(r => !r.price || !r.image);
+      const itemsToEnhance = initialResults.filter(r => !r.price.amount || !r.image);
       
-      // Limit concurrent requests to 3 to avoid overwhelming the API
-      const batchSize = 3;
-      for (let i = 0; i < itemsToEnhance.length; i += batchSize) {
-        const batch = itemsToEnhance.slice(i, i + batchSize);
-        
-        await Promise.allSettled(
-          batch.map(async (result) => {
-            // Check cache first
-            const cached = metadataCache.get(result.url);
-            if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-              const enhanced = { ...result, ...cached.data };
-              if (onProgress) onProgress(enhanced);
-              return;
-            }
-
-            try {
-              const metadata = await fetchMetadata(result.url);
-              
-              // Cache the result
-              metadataCache.set(result.url, {
-                data: metadata,
-                timestamp: Date.now()
-              });
-              
-              const enhanced: SearchResult = {
-                ...result,
-                title: metadata.title || result.title,
-                price: metadata.price || result.price,
-                image: metadata.image || result.image,
-              };
-              
-              if (onProgress) onProgress(enhanced);
-              
-              // Update the original array
-              const index = initialResults.findIndex(r => r.url === result.url);
-              if (index !== -1) {
-                initialResults[index] = enhanced;
-              }
-            } catch (error) {
-              console.error(`Metadata fetch failed for ${result.url}:`, error);
-            }
-          })
-        );
-      }
+      // Process each item individually to allow for immediate UI updates
+      await Promise.all(itemsToEnhance.map(async (result) => {
+        // Check cache first
+        const cached = metadataCache.get(result.url);
+        if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+          const enhanced = { ...result, ...cached.data };
+          if (onProgress) onProgress(enhanced);
+          return;
+        }
+      
+        try {
+          const metadata = await fetchMetadata(result.url);
+          
+          // Cache the result
+          metadataCache.set(result.url, {
+            data: metadata,
+            timestamp: Date.now()
+          });
+          
+          const enhanced: SearchResult = {
+            ...result,
+            title: metadata.title || result.title,
+            price: metadata.price.amount ? metadata.price : result.price,
+            image: metadata.image || result.image,
+          };
+          
+          if (onProgress) onProgress(enhanced);
+          
+          // Update the original array
+          const index = initialResults.findIndex(r => r.url === result.url);
+          if (index !== -1) {
+            initialResults[index] = enhanced;
+          }
+        } catch (error) {
+          console.error(`Metadata fetch failed for ${result.url}:`, error);
+        }
+      }));
     };
 
     // Run enhancement in background without blocking
