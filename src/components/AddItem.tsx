@@ -262,9 +262,21 @@ const AddItem = forwardRef<HTMLDivElement, AddItemProps>(({ onLoadingChange, isU
                     }}
                     onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
                     placeholder="e.g. Cozy Blanket"
-                    className="w-full p-3 sm:p-4 rounded-full border-2 border-stone-300 focus:outline-none focus:ring-4 focus:ring-blue-300 shadow-lg text-stone-700 placeholder-stone-400 text-base sm:text-lg"
-                  />
-                   <SearchSuggestions
+                    className="w-full p-3 sm:p-4 pr-10 sm:pr-12 rounded-full border-2 border-stone-300 focus:outline-none focus:ring-4 focus:ring-blue-300 shadow-lg text-stone-700 placeholder-stone-400 text-base sm:text-lg"
+                                      />
+                                      {searchQuery && (
+                                        <button
+                                          type="button"
+                                          onClick={() => setSearchQuery('')}
+                                          className="absolute inset-y-0 right-0 flex items-center pr-3 sm:pr-4 text-stone-400 hover:text-stone-600 transition-colors duration-200"
+                                          aria-label="Clear search"
+                                        >
+                                          <svg className="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                          </svg>
+                                        </button>
+                                      )}
+                                       <SearchSuggestions
                     suggestions={searchSuggestions}
                     onSelect={handleSuggestionSelect}
                     show={showSuggestions}

@@ -1,14 +1,13 @@
-// search.ts - Optimized version
+// search.ts - Enhanced version with Shopping results
 
 import type { Metadata } from './metadata';
 import { fetchMetadata } from './metadata';
 import { type Price, detectCurrency } from './currency';
 
-// metadata.ts - Optimized version
-
 export interface SearchResult extends Metadata {
   source: string;
   snippet?: string;
+  isShoppingResult?: boolean; // Flag to identify shopping results
 }
 
 const GOOGLE_API_KEY = import.meta.env.VITE_GOOGLE_API_KEY || '';
@@ -40,7 +39,6 @@ const isProductLink = (item: any): boolean => {
   const url = item.link.toLowerCase();
   const snippet = (item.snippet || '').toLowerCase();
   
-  // Quick checks first (faster than regex)
   const hasProductPath = url.includes('/product') || url.includes('/item') || 
                          url.includes('/dp/') || url.includes('/p/') ||
                          url.includes('/buy') || url.includes('/shop');
@@ -52,7 +50,6 @@ const isProductLink = (item: any): boolean => {
   return hasProductPath || hasPrice;
 };
 
-// Fetch with timeout to prevent hanging requests
 const anySignal = (signals: AbortSignal[]): AbortSignal => {
   const controller = new AbortController();
   for (const signal of signals) {
@@ -83,7 +80,6 @@ const fetchWithTimeout = async (url: string, timeout = 8000, signal?: AbortSigna
   }
 };
 
-// Extract price with improved patterns
 const parsePriceAmount = (priceStr: string | number): number => {
     if (typeof priceStr === 'number') return priceStr > 0 ? priceStr : 0;
     if (!priceStr) return 0;
@@ -124,6 +120,141 @@ const extractPriceFromText = (text: string): Price => {
     return { amount: 0, currency: 'UNKNOWN' };
 };
 
+// Check if URL is a valid product page (not a direct image/asset URL)
+const isValidProductUrl = (url: string): boolean => {
+  try {
+    const urlObj = new URL(url);
+    const path = urlObj.pathname.toLowerCase();
+    
+    // Exclude direct image URLs
+    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp'];
+    if (imageExtensions.some(ext => path.endsWith(ext))) {
+      return false;
+    }
+    
+    // Exclude CDN and asset URLs
+    const excludedPatterns = [
+      'cdn-images', 'cdn.', '/images/', '/assets/', 
+      'static.', 'media.', '/thumb/', '/photo/',
+      'cloudinary', 'imgix', 'akamaized'
+    ];
+    if (excludedPatterns.some(pattern => url.includes(pattern))) {
+      return false;
+    }
+    
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+// Fetch shopping results from Google Shopping API
+const fetchShoppingResults = async (
+  query: string,
+  signal?: AbortSignal
+): Promise<any[]> => {
+  try {
+    // Use the Shopping search type with Custom Search API
+    const shoppingUrl = `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_API_KEY}&cx=${GOOGLE_SEARCH_ENGINE_ID}&q=${encodeURIComponent(query)}&searchType=image&num=10`;
+    
+    const response = await fetchWithTimeout(shoppingUrl, 8000, signal);
+    if (!response.ok) {
+      console.warn('Shopping API request failed:', response.status);
+      return [];
+    }
+    
+    const data = await response.json();
+    
+    // Filter and extract contextLink (the actual product page) instead of image URL
+    const items = (data.items || []).map((item: any) => {
+      // Prefer contextLink (the page containing the image) over link (direct image URL)
+      const productUrl = item.image?.contextLink || item.link;
+      
+      return {
+        ...item,
+        link: productUrl, // Use the product page URL
+        originalImageUrl: item.link, // Keep original image URL for reference
+      };
+    }).filter((item: any) => isValidProductUrl(item.link));
+    
+    return items;
+  } catch (error) {
+    console.error('Shopping search error:', error);
+    return [];
+  }
+};
+
+// Process a single item into SearchResult format
+const processSearchItem = (item: any, isShoppingResult = false): SearchResult | null => {
+  try {
+    const hostname = new URL(item.link).hostname.replace('www.', '');
+    
+    let price: Price = { amount: 0, currency: 'UNKNOWN' };
+    let image = '';
+    
+    // Extract price from Google's data (try multiple sources)
+    const offer = item.pagemap?.offer?.[0];
+    const metatags = item.pagemap?.metatags?.[0];
+    const product = item.pagemap?.product?.[0];
+
+    if (offer?.price) {
+      const currency = detectCurrency(offer.priceCurrency || offer.price);
+      const amount = parsePriceAmount(String(offer.price));
+      if (amount > 0) {
+        price = { amount, currency };
+      }
+    } else if (product?.price) {
+      const currency = detectCurrency(product.priceCurrency || product.price);
+      const amount = parsePriceAmount(String(product.price));
+      if (amount > 0) {
+        price = { amount, currency };
+      }
+    } else if (metatags?.['product:price:amount']) {
+      const currency = detectCurrency(metatags['product:price:currency'] || '');
+      const amount = parsePriceAmount(metatags['product:price:amount']);
+      if (amount > 0) {
+        price = { amount, currency: currency !== 'UNKNOWN' ? currency : 'USD' };
+      }
+    }
+    
+    // If still no price, try snippet and title
+    if (price.amount === 0) {
+      const textToSearch = `${item.snippet || ''} ${item.title || ''}`;
+      price = extractPriceFromText(textToSearch);
+    }
+    
+    // Get best image (prioritize high-quality images)
+    image = item.pagemap?.metatags?.[0]?.['og:image'] ||
+            item.pagemap?.cse_image?.[0]?.src ||
+            item.image?.thumbnailLink ||
+            item.pagemap?.cse_thumbnail?.[0]?.src ||
+            (item.originalImageUrl && isValidProductUrl(item.originalImageUrl) ? '' : item.originalImageUrl) ||
+            `https://logo.clearbit.com/${hostname}`;
+    
+    // Clean up title (remove site name suffix if present)
+    let title = item.title || '';
+    const commonSuffixes = [' - Farfetch', ' | Farfetch', ' - SSENSE', ' | SSENSE', ' - NET-A-PORTER', ' | Amazon'];
+    for (const suffix of commonSuffixes) {
+      if (title.endsWith(suffix)) {
+        title = title.slice(0, -suffix.length).trim();
+      }
+    }
+    
+    return {
+      title,
+      url: item.link,
+      snippet: item.snippet || '',
+      source: hostname,
+      price,
+      image,
+      isShoppingResult
+    };
+  } catch (error) {
+    console.error('Error processing item:', error);
+    return null;
+  }
+};
+
 export const searchItems = async (
   query: string,
   onProgress?: (result: SearchResult) => void,
@@ -148,87 +279,73 @@ export const searchItems = async (
   }
 
   try {
-    // Step 1: Fetch search results (reduced to 8 for speed)
-    const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_API_KEY}&cx=${GOOGLE_SEARCH_ENGINE_ID}&q=${encodeURIComponent(query + ' tangible product for sale')}&num=8`;
-    
-    const response = await fetchWithTimeout(searchUrl, 8000, signal);
-    if (!response.ok) {
-      throw new Error(`Search API returned ${response.status}`);
-    }
-    
-    const data = await response.json();
-    
-    if (!data.items?.length) {
-      return [];
-    }
+    // Step 1: Fetch both regular and shopping results in parallel
+    const [regularResponse, shoppingItems] = await Promise.all([
+      fetchWithTimeout(
+        `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_API_KEY}&cx=${GOOGLE_SEARCH_ENGINE_ID}&q=${encodeURIComponent(query + ' tangible product for sale')}&num=8`,
+        8000,
+        signal
+      ),
+      fetchShoppingResults(query, signal)
+    ]);
 
-    // Step 2: Filter quickly (synchronous operations)
-    const productItems = data.items
+    if (!regularResponse.ok) {
+      throw new Error(`Search API returned ${regularResponse.status}`);
+    }
+    
+    const regularData = await regularResponse.json();
+    
+    // Step 2: Process regular search results
+    const regularItems = (regularData.items || [])
       .filter((item: any) => !isNonShoppingDomain(item.link))
       .filter((item: any) => isProductLink(item))
-      .slice(0, 6); // Limit to top 6 results
+      .slice(0, 6);
 
-    if (!productItems.length) {
+    // Step 3: Process shopping results - filter out invalid URLs
+    const processedShoppingItems = shoppingItems
+      .filter((item: any) => !isNonShoppingDomain(item.link))
+      .filter((item: any) => isValidProductUrl(item.link))
+      .slice(0, 6);
+
+    // Step 4: Combine and deduplicate results
+    const allItems = [...regularItems, ...processedShoppingItems];
+    const seenUrls = new Set<string>();
+    const uniqueItems: any[] = [];
+
+    for (const item of allItems) {
+      const normalizedUrl = item.link.toLowerCase().replace(/\/$/, '');
+      if (!seenUrls.has(normalizedUrl)) {
+        seenUrls.add(normalizedUrl);
+        uniqueItems.push(item);
+      }
+    }
+
+    if (!uniqueItems.length) {
       return [];
     }
 
-    // Step 3: Create initial results with best available data from Google
-    const initialResults: SearchResult[] = productItems.map((item: any) => {
-      const hostname = new URL(item.link).hostname.replace('www.', '');
-      
-      let price: Price = { amount: 0, currency: 'UNKNOWN' };
-      let image = '';
-      
-      // Extract price from Google's data (fast)
-      const offer = item.pagemap?.offer?.[0];
-      const metatags = item.pagemap?.metatags?.[0];
+    // Step 5: Process all items into SearchResult format
+    const initialResults: SearchResult[] = uniqueItems
+      .map((item, index) => processSearchItem(
+        item, 
+        index >= regularItems.length // Mark as shopping result if from shopping API
+      ))
+      .filter((result): result is SearchResult => result !== null)
+      .slice(0, 12); // Limit total results
 
-      if (offer?.price) {
-        const currency = detectCurrency(offer.priceCurrency || offer.price);
-        const amount = parsePriceAmount(String(offer.price));
-        if (amount > 0) {
-          price = { amount, currency };
-        }
-      } else if (metatags?.['product:price:amount']) {
-        const currency = detectCurrency(metatags['product:price:currency'] || '');
-        const amount = parsePriceAmount(metatags['product:price:amount']);
-         if (amount > 0) {
-          price = { amount, currency: currency !== 'UNKNOWN' ? currency : 'USD' };
-        }
-      } else {
-        // Fallback: extract from snippet
-        price = extractPriceFromText(item.snippet || '');
-      }
-      
-      // Get best image (fast)
-      image = item.pagemap?.cse_image?.[0]?.src ||
-              item.pagemap?.metatags?.[0]?.['og:image'] ||
-              item.pagemap?.cse_thumbnail?.[0]?.src ||
-              `https://logo.clearbit.com/${hostname}`;
-      
-      return {
-        title: item.title,
-        url: item.link,
-        snippet: item.snippet || '',
-        source: hostname,
-        price,
-        image
-      };
-    });
-
-    // Step 4: Return immediately for instant UI update
+    // Step 6: Return immediately for instant UI update
     if (onProgress) {
       initialResults.forEach(result => onProgress(result));
     }
 
-    // Step 5: Enhance results in background (parallel, with limits)
+    // Step 7: Enhance results in background
     const enhanceResults = async () => {
-      // Process only items missing price or image
-      const itemsToEnhance = initialResults.filter(r => !r.price.amount || !r.image);
+      // Only enhance items that need it AND have valid URLs
+      const itemsToEnhance = initialResults.filter(r => 
+        (!r.price.amount || !r.image) && isValidProductUrl(r.url)
+      );
       
-      // Process each item individually to allow for immediate UI updates
       await Promise.all(itemsToEnhance.map(async (result) => {
-        // Check cache first
         const cached = metadataCache.get(result.url);
         if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
           const enhanced = { ...result, ...cached.data };
@@ -239,33 +356,43 @@ export const searchItems = async (
         try {
           const metadata = await fetchMetadata(result.url);
           
-          // Cache the result
-          metadataCache.set(result.url, {
-            data: metadata,
-            timestamp: Date.now()
-          });
+          // Only use fetched metadata if it's actually useful
+          // (some sites return "Access Denied" or empty data)
+          const hasUsefulData = metadata.title && 
+                                metadata.title !== 'Access Denied' && 
+                                metadata.title !== 'Denied' &&
+                                !metadata.title.toLowerCase().includes('access denied') &&
+                                (metadata.price.amount > 0 || metadata.image);
           
-          const enhanced: SearchResult = {
-            ...result,
-            title: metadata.title || result.title,
-            price: metadata.price.amount ? metadata.price : result.price,
-            image: metadata.image || result.image,
-          };
-          
-          if (onProgress) onProgress(enhanced);
-          
-          // Update the original array
-          const index = initialResults.findIndex(r => r.url === result.url);
-          if (index !== -1) {
-            initialResults[index] = enhanced;
+          if (hasUsefulData) {
+            metadataCache.set(result.url, {
+              data: metadata,
+              timestamp: Date.now()
+            });
+            
+            const enhanced: SearchResult = {
+              ...result,
+              title: metadata.title || result.title,
+              price: metadata.price.amount ? metadata.price : result.price,
+              image: metadata.image || result.image,
+            };
+            
+            if (onProgress) onProgress(enhanced);
+            
+            const index = initialResults.findIndex(r => r.url === result.url);
+            if (index !== -1) {
+              initialResults[index] = enhanced;
+            }
+          } else {
+            console.log(`Skipping unhelpful metadata for ${result.url}`);
           }
         } catch (error) {
           console.error(`Metadata fetch failed for ${result.url}:`, error);
+          // Don't retry - keep the original Google data
         }
       }));
     };
 
-    // Run enhancement in background without blocking
     enhanceResults();
 
     return initialResults;
@@ -304,7 +431,6 @@ export const getSearchSuggestions = (
     (window as any)[callbackName] = (data: any) => {
       cleanup();
       const suggestions = (data[1] || []).slice(0, 5);
-      console.log('Search suggestions from API:', suggestions);
       resolve(suggestions);
     };
     
@@ -325,8 +451,6 @@ export const getSearchSuggestions = (
 };
 
 export const getHotProducts = (): Promise<string[]> => {
-  console.log('Providing curated hot product suggestions');
-  
   const hotProducts = [
     'iPhone 17',
     'Hermes Kelly Bag',
@@ -340,12 +464,10 @@ export const getHotProducts = (): Promise<string[]> => {
     'Gucci Horsebit Loafers',
   ];
 
-  // Shuffle the array to provide a different order each time
   const shuffled = hotProducts.sort(() => 0.5 - Math.random());
   
   return Promise.resolve(shuffled.slice(0, 5));
 };
-
 
 // Clean up old cache entries periodically
 setInterval(() => {
@@ -355,4 +477,4 @@ setInterval(() => {
       metadataCache.delete(key);
     }
   }
-}, 60000); // Run every minute
+}, 60000);
